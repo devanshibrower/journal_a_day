@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import MarkerTool from './tools/MarkerTool';
-import WashiTapeTool from './tools/WashiTapeTool';
+import WashiTapeTool, { WashiTapePattern, PatternPreview, WASHI_PATTERNS } from './tools/WashiTapeTool';
 import ImageFrameTool from './tools/ImageFrameTool';
 
 // Define tool types for type safety
@@ -22,6 +22,7 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
   // State for tool options
   const [markerColor, setMarkerColor] = useState('#67dfff');
   const [markerTipType, setMarkerTipType] = useState<MarkerTipType>('marker');
+  const [selectedPattern, setSelectedPattern] = useState('scallop');
 
   // Updated color set to match the design
   const toolColors = [
@@ -36,8 +37,13 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
 
   // Handle tool selection
   const handleToolSelect = (tool: ToolType) => {
-    setSelectedTool(tool);
-    setIsOptionsExpanded(tool !== null);
+    if (selectedTool === tool) {
+      setIsOptionsExpanded(false);
+      setTimeout(() => setSelectedTool(null), 300); // Wait for animation to complete
+    } else {
+      setSelectedTool(tool);
+      setIsOptionsExpanded(true);
+    }
   };
 
   const getTipIcon = (type: MarkerTipType) => {
@@ -84,7 +90,7 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
           <div className="bg-white rounded-full py-2 px-3 w-full shadow-sm">
             <div className="flex items-center justify-between">
               <div className="flex gap-2">
-                {tipTypes.map((type) => (
+                {selectedTool === 'marker' && tipTypes.map((type) => (
                   <button
                     key={type}
                     className={`relative w-7 h-7 rounded-full transition-all overflow-visible
@@ -100,6 +106,18 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
                     </div>
                   </button>
                 ))}
+                {selectedTool === 'washiTape' && (
+                  <div className="flex gap-2">
+                    {WASHI_PATTERNS.map((pattern) => (
+                      <PatternPreview
+                        key={pattern.id}
+                        pattern={pattern}
+                        isSelected={selectedPattern === pattern.id}
+                        onClick={() => setSelectedPattern(pattern.id)}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
               
               <div className="w-px h-7 bg-gray-200 mx-3" />
@@ -108,7 +126,8 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
                 {toolColors.map((color) => (
                   <button
                     key={color}
-                    className="w-7 h-7 rounded-full hover:ring-2 hover:ring-gray-200 transition-all"
+                    className={`w-7 h-7 rounded-full hover:ring-2 hover:ring-gray-200 transition-all
+                      ${markerColor === color ? 'ring-2 ring-gray-400' : ''}`}
                     style={{ backgroundColor: color }}
                     onClick={() => setMarkerColor(color)}
                   />
@@ -132,6 +151,8 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
               isSelected={selectedTool === 'washiTape'}
               onClick={() => handleToolSelect(selectedTool === 'washiTape' ? null : 'washiTape')}
               color={markerColor}
+              selectedPattern={selectedPattern}
+              onPatternSelect={setSelectedPattern}
             />
             <ImageFrameTool
               isSelected={selectedTool === 'imageFrame'}
