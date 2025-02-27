@@ -43,6 +43,7 @@ A FigJam-inspired digital journal toolbar implementation.
    - Color selection for frame
    - for no frame pattern - no color options
    - for polaroid frame pattern - color options are E8E0D0, D4C27D, D4A0A7, B2C2A9, B0C4DE, C8A2C8
+   - colors for cloud frame are A7CFFF, D5C9F6, FFCBD0, C2E6D9, F9E0C0
 
 ### Visual Design
 - Clean, minimal interface

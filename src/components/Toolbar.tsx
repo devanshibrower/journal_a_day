@@ -26,7 +26,7 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
   const [markerColor, setMarkerColor] = useState('#FDBB80');
   // Replace separate pattern and color states with a single selection state
   const [washiTapeSelection, setWashiTapeSelection] = useState<WashiTapeSelection>('checkers');
-  const [frameColor, setFrameColor] = useState('#6BAAE8');
+  const [frameColor, setFrameColor] = useState('#E8E0D0'); // Default to first polaroid color
   
   const [markerTipType, setMarkerTipType] = useState<MarkerTipType>('marker');
   const [selectedFramePattern, setSelectedFramePattern] = useState('regular');
@@ -56,28 +56,36 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
     '#F9CE70', // yellow
   ];
 
-  const frameColors = [
-    '#6BAAE8', // blue
-    '#F9CE70', // yellow
-    '#7ACCA8', // teal
-    '#FE7293', // pink
+  // Separate color palettes for each frame type
+  const polaroidColors = [
+    '#E8E0D0', // beige
+    '#D4C27D', // gold
+    '#D4A0A7', // pink
+    '#B2C2A9', // sage
+    '#B0C4DE', // light blue
+    '#C8A2C8', // lavender
+  ];
+
+  const cloudColors = [
+    '#A7CFFF', // light blue
+    '#D5C9F6', // lavender
+    '#FFCBD0', // pink
+    '#C2E6D9', // mint
+    '#F9E0C0', // peach
   ];
 
   const tipTypes: MarkerTipType[] = ['thin', 'marker'];
 
   // Handle tool selection
   const handleToolSelect = (tool: ToolType) => {
-    if (tool === 'imageFrame') {
-      // For image frame tool, always keep it selected and expanded
-      setSelectedTool('imageFrame');
-      setIsOptionsExpanded(true);
-      return;
-    }
-
-    // For other tools, switch between them
+    // For all tools, including image frame, switch between them
     if (tool === selectedTool) {
       setSelectedTool(null);
       setIsOptionsExpanded(false);
+      // Reset frame pattern to regular when deselecting image frame tool
+      if (tool === 'imageFrame') {
+        setSelectedFramePattern('regular');
+      }
     } else {
       setSelectedTool(tool);
       setIsOptionsExpanded(true);
@@ -98,7 +106,14 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
       case 'washiTape':
         return washiTapeColors;
       case 'imageFrame':
-        return frameColors;
+        // Return different colors based on frame pattern
+        if (selectedFramePattern === 'regular') {
+          return []; // No colors for regular frame
+        } else if (selectedFramePattern === 'polaroid') {
+          return polaroidColors;
+        } else {
+          return cloudColors; // For cloud frame
+        }
       default:
         return markerColors;
     }
@@ -151,6 +166,17 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
         return frameColor;
       default:
         return markerColor;
+    }
+  };
+
+  // Update frame pattern selection to also set the appropriate default color
+  const handleFramePatternSelect = (patternId: string) => {
+    setSelectedFramePattern(patternId);
+    // Set default color based on pattern
+    if (patternId === 'polaroid') {
+      setFrameColor(polaroidColors[0]); // #E8E0D0
+    } else if (patternId === 'cloud') {
+      setFrameColor(cloudColors[0]); // #A7CFFF
     }
   };
 
@@ -337,7 +363,7 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
                         key={pattern.id}
                         pattern={pattern}
                         isSelected={selectedFramePattern === pattern.id}
-                        onClick={() => setSelectedFramePattern(pattern.id)}
+                        onClick={() => handleFramePatternSelect(pattern.id)}
                       />
                     ))}
                   </div>
@@ -347,7 +373,7 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
               {selectedTool !== 'washiTape' && <div className="w-px h-6 bg-gray-200 mx-2" />}
               
               <div className={`flex items-center`}>
-                {selectedTool !== 'washiTape' && getCurrentToolColors().map((color, index) => (
+                {selectedTool !== 'washiTape' && selectedTool === 'imageFrame' && selectedFramePattern !== 'regular' && getCurrentToolColors().map((color, index) => (
                   <div key={color} className="relative" style={{ width: '24px', height: '24px', margin: '3px' }}>
                     {/* Selection ring - using a div instead of outline */}
                     {(getCurrentColor() === color || hoveredColorIndex === index) && (

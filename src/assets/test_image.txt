@@ -1,0 +1,7 @@
+Image Frame Tool Update
+
+- Added real image to display in image frames when selected
+- Original landscape SVG path appears when tool is unselected
+- Image is displayed only when the tool is selected
+- Frame borders still change color when selected
+- Image fits using preserveAspectRatio="xMidYMid slice" to maintain proper proportions 
