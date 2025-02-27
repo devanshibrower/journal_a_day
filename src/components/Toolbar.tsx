@@ -359,7 +359,7 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
               </div>
               
               {/* Only show divider when needed */}
-              {selectedTool === 'marker' || selectedTool === 'imageFrame' && (
+              {(selectedTool === 'marker' || selectedTool === 'imageFrame') && (
                 <div className="w-px h-6 bg-gray-200 mx-2" />
               )}
               
@@ -368,7 +368,7 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
                 {(selectedTool === 'marker' || selectedTool === 'imageFrame') && getCurrentToolColors().map((color, index) => (
                   <div key={color} className="relative" style={{ width: '24px', height: '24px', margin: '3px' }}>
                     {/* Selection ring - using a div instead of outline */}
-                    {(getCurrentColor() === color || hoveredColorIndex === index) && selectedFramePattern !== 'regular' && (
+                    {(getCurrentColor() === color || hoveredColorIndex === index) && (selectedTool === 'marker' || selectedFramePattern !== 'regular') && (
                       <div 
                         className="absolute rounded-full pointer-events-none transition-opacity duration-150"
                         style={{
@@ -389,12 +389,12 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
                       className="absolute inset-0 w-full h-full rounded-full transition-opacity"
                       style={{ 
                         backgroundColor: color,
-                        cursor: selectedFramePattern === 'regular' ? 'not-allowed' : 'pointer',
-                        opacity: selectedFramePattern === 'regular' ? '0.5' : '1'
+                        cursor: selectedTool === 'imageFrame' && selectedFramePattern === 'regular' ? 'not-allowed' : 'pointer',
+                        opacity: selectedTool === 'imageFrame' && selectedFramePattern === 'regular' ? '0.5' : '1'
                       }}
                       onMouseEnter={() => setHoveredColorIndex(index)}
                       onMouseLeave={() => setHoveredColorIndex(null)}
-                      disabled={selectedFramePattern === 'regular'}
+                      disabled={selectedTool === 'imageFrame' && selectedFramePattern === 'regular'}
                     ></button>
                   </div>
                 ))}
