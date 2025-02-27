@@ -14,7 +14,7 @@ A FigJam-inspired digital journal toolbar implementation.
 ### Tool Options
 - An options bar appears inside the toolbar when a tool is selected
 - The options bar expands appears within the toolbar, expanding the main toolbar upwards (not downward). The positions of the main tools should not change
-- Options bar has tool-specific options on the left and color options on the right
+- Options bar has tool-specific options. 
 - all the menu items in the options bar are circular in shape
 - Left and right sections are separated by a vertical divider in grey color. 
 
@@ -30,15 +30,19 @@ A FigJam-inspired digital journal toolbar implementation.
    - Adjustable tip type -> highlighter, thin pen, marker
    - Color selection
    - Dynamic preview of selected color and tip type in selected tool button's svg
+   - color options for marker tool specifically are FDBB80, FE7293, 84EB9E, FCEA60, 80C6FF, D4AFFE
 
 2. Washi Tape Tool
    - Pattern selection
    - Width options
    - Color selection
+   - color options for washi tape tool specifically are 7ACCA8, 6BAAE8, F9CE70
 
 3. Image Frame Tool
    - Frame style options
    - Color selection for frame
+   - for no frame pattern - no color options
+   - for polaroid frame pattern - color options are E8E0D0, D4C27D, D4A0A7, B2C2A9, B0C4DE, C8A2C8
 
 ### Visual Design
 - Clean, minimal interface

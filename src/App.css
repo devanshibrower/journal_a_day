@@ -1,3 +1,53 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html, body {
+  background-color: rgb(250 250 250);
+}
+
+.app {
+  min-height: 100vh;
+  background-color: rgb(250 250 250);
+}
+
+/* Remove default blue focus rings */
+button:focus, 
+button:focus-visible {
+  outline: none;
+}
+
+/* Remove outline on hover */
+button:hover {
+  outline: none;
+}
+
+/* Optional: Add a very subtle focus indicator for accessibility */
+button:focus-visible {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+/* Additional styles to remove all possible blue outlines */
+button, button * {
+  outline: none !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+button:focus, 
+button:focus-visible,
+button:hover,
+button:active,
+button:focus *, 
+button:focus-visible *,
+button:hover *,
+button:active * {
+  outline: none !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  -webkit-tap-highlight-color: transparent !important;
+}
