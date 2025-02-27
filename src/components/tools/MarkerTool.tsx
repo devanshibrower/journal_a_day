@@ -11,7 +11,7 @@ interface MarkerToolProps {
 const MarkerTool: React.FC<MarkerToolProps> = ({
   isSelected,
   onClick,
-  color = '#67dfff',
+  color = '#000000',
   bodyColor = '#D4D4D8',
   tipType = 'marker'
 }) => {

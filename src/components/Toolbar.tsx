@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import MarkerTool from './tools/MarkerTool';
 import WashiTapeTool, { PatternPreview, WASHI_PATTERNS } from './tools/WashiTapeTool';
-import ImageFrameTool, { FramePatternPreview, FRAME_PATTERNS } from './tools/ImageFrameTool';
+import ImageFrameTool, { FramePatternPreview, FRAME_PATTERNS, FramePattern } from './tools/ImageFrameTool';
+import clsx from 'clsx';
 
 // Define tool types for type safety
 type ToolType = 'marker' | 'washiTape' | 'imageFrame' | null;
@@ -63,7 +64,6 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
     '#D4A0A7', // pink
     '#B2C2A9', // sage
     '#B0C4DE', // light blue
-    '#C8A2C8', // lavender
   ];
 
   const cloudColors = [
@@ -106,13 +106,13 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
       case 'washiTape':
         return washiTapeColors;
       case 'imageFrame':
-        // Return different colors based on frame pattern
+        // Return cloud colors for regular frame (will be disabled)
         if (selectedFramePattern === 'regular') {
-          return []; // No colors for regular frame
+          return cloudColors;
         } else if (selectedFramePattern === 'polaroid') {
           return polaroidColors;
         } else {
-          return cloudColors; // For cloud frame
+          return cloudColors;
         }
       default:
         return markerColors;
@@ -187,21 +187,21 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
     >
       <div className="relative w-fit">
         {/* Options bar */}
-        <div className={`absolute bottom-full left-1/2 -translate-x-1/2 transition-all duration-300 ease-in-out mb-2
+        <div className={`absolute bottom-full left-1/2 -translate-x-1/2 transition-all duration-300 ease-in-out
           ${isOptionsExpanded ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'}`}>
-          <div className="bg-zinc-100 rounded-full py-1.5 px-2">
+          <div className="rounded-full py-1.5 px-2">
             <div className="flex items-center">
               <div className="flex gap-1.5">
                 {selectedTool === 'marker' && (
                   <>
                     <div className="relative" style={{ width: '24px', height: '24px', margin: '3px' }}>
-                      {/* Background circle for marker tip */}
-                      <div className="absolute inset-0 w-full h-full rounded-full bg-white"></div>
+                      {/* Background rounded square for marker tip */}
+                      <div className="absolute inset-0 w-full h-full rounded-md"></div>
                       
                       {/* Selection ring - using a div instead of outline */}
                       {(markerTipType === 'marker' || hoveredTipType === 'marker') && (
                         <div 
-                          className="absolute rounded-full pointer-events-none transition-opacity duration-150"
+                          className="absolute rounded-md pointer-events-none transition-opacity duration-150"
                           style={{
                             top: '-2px',
                             left: '-2px',
@@ -216,36 +216,30 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
                       
                       {/* Button for interaction */}
                       <button
-                        className="absolute inset-0 w-full h-full rounded-full flex items-center justify-center"
+                        className="absolute inset-0 w-full h-full rounded-md flex items-center justify-center"
                         onClick={() => setMarkerTipType('marker')}
                         title="Marker Tip"
                         onMouseEnter={() => setHoveredTipType('marker')}
                         onMouseLeave={() => setHoveredTipType(null)}
                         style={{ background: 'transparent' }}
                       >
-                        <svg width="100%" height="100%" viewBox="0 0 8 7" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <g clipPath="url(#clip0_93_1447)">
-                            <rect x="0.75" width="6.5" height="6.5" rx="3.25" fill="white"/>
-                            <path d="M2.5 2.62871C2.5 2.50858 2.58076 2.40346 2.69683 2.37251L5.16653 1.71393C5.33486 1.66904 5.5 1.79591 5.5 1.97012V4.29167H2.5V2.62871Z" fill={markerTipType === 'marker' ? '#18181B' : '#71717B'}/>
-                            <path d="M5.67932 4.07832C5.67251 4.01016 5.61515 3.95825 5.54665 3.95825H2.45465C2.38615 3.95825 2.32879 4.01016 2.32198 4.07832L2.17205 5.57756C2.16899 5.60819 2.15543 5.63681 2.13366 5.65857L1.87304 5.9192C1.84803 5.9442 1.83398 5.97812 1.83398 6.01348V7.49159C1.83398 7.56522 1.89368 7.62492 1.96732 7.62492H6.03398C6.10762 7.62492 6.16732 7.56522 6.16732 7.49159V6.01348C6.16732 5.97812 6.15327 5.9442 6.12827 5.9192L5.86764 5.65857C5.84588 5.63681 5.83231 5.60819 5.82925 5.57756L5.67932 4.07832Z" fill="#D9D9D9"/>
+                        <svg width="24" height="24" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <g transform="translate(3,2.5) scale(2.7)">
+                            <path d="M0.615234 0.926502C0.615234 0.815615 0.689783 0.718582 0.796925 0.690011L3.07665 0.0820851C3.23203 0.0406499 3.38446 0.157764 3.38446 0.318576V2.46154H0.615234V0.926502Z" fill={markerTipType === 'marker' ? '#18181B' : '#71717B'}/>
+                            <path d="M3.54954 2.26464C3.54325 2.20172 3.49031 2.15381 3.42708 2.15381H0.572922C0.509691 2.15381 0.456747 2.20172 0.450455 2.26464L0.312064 3.64855C0.309237 3.67682 0.296716 3.70325 0.276626 3.72334L0.0360484 3.96391C0.012967 3.987 0 4.0183 0 4.05094V4.49235C0 4.56032 0.0551034 4.61542 0.123077 4.61542H3.87692C3.9449 4.61542 4 4.56032 4 4.49235V4.05094C4 4.0183 3.98703 3.987 3.96395 3.96391L3.72337 3.72334C3.70328 3.70325 3.69076 3.67682 3.68794 3.64855L3.54954 2.26464Z" fill="#D4D4D8"/>
                           </g>
-                          <defs>
-                            <clipPath id="clip0_93_1447">
-                              <rect x="0.75" width="6.5" height="6.5" rx="3.25" fill="white"/>
-                            </clipPath>
-                          </defs>
                         </svg>
                       </button>
                     </div>
                     
                     <div className="relative" style={{ width: '24px', height: '24px', margin: '3px' }}>
-                      {/* Background circle for thin tip */}
-                      <div className="absolute inset-0 w-full h-full rounded-full bg-white"></div>
+                      {/* Background rounded square for thin tip */}
+                      <div className="absolute inset-0 w-full h-full rounded-md"></div>
                       
                       {/* Selection ring - using a div instead of outline */}
                       {(markerTipType === 'thin' || hoveredTipType === 'thin') && (
                         <div 
-                          className="absolute rounded-full pointer-events-none transition-opacity duration-150"
+                          className="absolute rounded-md pointer-events-none transition-opacity duration-150"
                           style={{
                             top: '-2px',
                             left: '-2px',
@@ -260,24 +254,18 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
                       
                       {/* Button for interaction */}
                       <button
-                        className="absolute inset-0 w-full h-full rounded-full flex items-center justify-center"
+                        className="absolute inset-0 w-full h-full rounded-md flex items-center justify-center"
                         onClick={() => setMarkerTipType('thin')}
                         title="Thin Tip"
                         onMouseEnter={() => setHoveredTipType('thin')}
                         onMouseLeave={() => setHoveredTipType(null)}
                         style={{ background: 'transparent' }}
                       >
-                        <svg width="100%" height="100%" viewBox="0 0 8 7" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <g clipPath="url(#clip0_93_1451)">
-                            <rect x="0.75" width="6.5" height="6.5" rx="3.25" fill="white"/>
-                            <path d="M3.79504 1.70159C3.81851 1.65465 3.86648 1.625 3.91897 1.625V1.625C3.96902 1.625 4.01519 1.652 4.03973 1.69563L5.5 4.29167H2.5L3.79504 1.70159Z" fill={markerTipType === 'thin' ? '#18181B' : '#71717B'}/>
-                            <path d="M5.67932 4.07832C5.67251 4.01016 5.61515 3.95825 5.54665 3.95825H2.45465C2.38615 3.95825 2.32879 4.01016 2.32198 4.07832L2.17205 5.57756C2.16899 5.60819 2.15543 5.63681 2.13366 5.65857L1.87304 5.9192C1.84803 5.9442 1.83398 5.97812 1.83398 6.01348V7.49159C1.83398 7.56522 1.89368 7.62492 1.96732 7.62492H6.03398C6.10762 7.62492 6.16732 7.56522 6.16732 7.49159V6.01348C6.16732 5.97812 6.15327 5.9442 6.12827 5.9192L5.86764 5.65857C5.84588 5.63681 5.83231 5.60819 5.82925 5.57756L5.67932 4.07832Z" fill="#D9D9D9"/>
+                        <svg width="24" height="24" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <g transform="translate(3,2.5) scale(2.7)">
+                            <path d="M1.79504 0.0765867C1.81851 0.0296529 1.86648 0 1.91897 0V0C1.96902 0 2.01519 0.027 2.03973 0.0706316L3.5 2.66667H0.5L1.79504 0.0765867Z" fill={markerTipType === 'thin' ? '#18181B' : '#71717B'}/>
+                            <path d="M3.54954 2.26464C3.54325 2.20172 3.49031 2.15381 3.42708 2.15381H0.572922C0.509691 2.15381 0.456747 2.20172 0.450455 2.26464L0.312064 3.64855C0.309237 3.67682 0.296716 3.70325 0.276626 3.72334L0.0360484 3.96391C0.012967 3.987 0 4.0183 0 4.05094V4.49235C0 4.56032 0.0551034 4.61542 0.123077 4.61542H3.87692C3.9449 4.61542 4 4.56032 4 4.49235V4.05094C4 4.0183 3.98703 3.987 3.96395 3.96391L3.72337 3.72334C3.70328 3.70325 3.69076 3.67682 3.68794 3.64855L3.54954 2.26464Z" fill="#D4D4D8"/>
                           </g>
-                          <defs>
-                            <clipPath id="clip0_93_1451">
-                              <rect x="0.75" width="6.5" height="6.5" rx="3.25" fill="white"/>
-                            </clipPath>
-                          </defs>
                         </svg>
                       </button>
                     </div>
@@ -370,13 +358,17 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
                 )}
               </div>
               
-              {selectedTool !== 'washiTape' && <div className="w-px h-6 bg-gray-200 mx-2" />}
+              {/* Only show divider when needed */}
+              {selectedTool === 'marker' || selectedTool === 'imageFrame' && (
+                <div className="w-px h-6 bg-gray-200 mx-2" />
+              )}
               
               <div className={`flex items-center`}>
-                {selectedTool !== 'washiTape' && selectedTool === 'imageFrame' && selectedFramePattern !== 'regular' && getCurrentToolColors().map((color, index) => (
+                {/* Show colors for marker tool or image frame tool (always show for image frame) */}
+                {(selectedTool === 'marker' || selectedTool === 'imageFrame') && getCurrentToolColors().map((color, index) => (
                   <div key={color} className="relative" style={{ width: '24px', height: '24px', margin: '3px' }}>
                     {/* Selection ring - using a div instead of outline */}
-                    {(getCurrentColor() === color || hoveredColorIndex === index) && (
+                    {(getCurrentColor() === color || hoveredColorIndex === index) && selectedFramePattern !== 'regular' && (
                       <div 
                         className="absolute rounded-full pointer-events-none transition-opacity duration-150"
                         style={{
@@ -394,13 +386,15 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
                     {/* Button for interaction */}
                     <button
                       onClick={() => handleColorSelect(color)}
-                      className="absolute inset-0 w-full h-full rounded-full"
+                      className="absolute inset-0 w-full h-full rounded-full transition-opacity"
                       style={{ 
                         backgroundColor: color,
-                        cursor: 'pointer'
+                        cursor: selectedFramePattern === 'regular' ? 'not-allowed' : 'pointer',
+                        opacity: selectedFramePattern === 'regular' ? '0.5' : '1'
                       }}
                       onMouseEnter={() => setHoveredColorIndex(index)}
                       onMouseLeave={() => setHoveredColorIndex(null)}
+                      disabled={selectedFramePattern === 'regular'}
                     ></button>
                   </div>
                 ))}

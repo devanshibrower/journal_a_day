@@ -31,19 +31,28 @@ A FigJam-inspired digital journal toolbar implementation.
    - Color selection
    - Dynamic preview of selected color and tip type in selected tool button's svg
    - color options for marker tool specifically are FDBB80, FE7293, 84EB9E, FCEA60, 80C6FF, D4AFFE
+   - Default SVG colors:
+     - Body color: zinc-300 (#D4D4D8)
+     - Dark elements: zinc-500 (#71717B)
+     - Selected/hover state: zinc-900 (#18181B)
 
 2. Washi Tape Tool
    - Pattern selection
    - Width options
    - Color selection
    - color options for washi tape tool specifically are 7ACCA8, 6BAAE8, F9CE70
+   - Default SVG colors follow the same token rules as Marker Tool
 
 3. Image Frame Tool
    - Frame style options
    - Color selection for frame
    - for no frame pattern - no color options
-   - for polaroid frame pattern - color options are E8E0D0, D4C27D, D4A0A7, B2C2A9, B0C4DE, C8A2C8
+   - for polaroid frame pattern - color options are E8E0D0, D4C27D, D4A0A7, B2C2A9, B0C4DE
    - colors for cloud frame are A7CFFF, D5C9F6, FFCBD0, C2E6D9, F9E0C0
+   - Default SVG colors:
+     - Body/background color: zinc-300 (#D4D4D8)
+     - Dark elements: zinc-500 (#71717B)
+     - Selected/hover state: zinc-900 (#18181B)
 
 ### Visual Design
 - Clean, minimal interface
@@ -51,6 +60,14 @@ A FigJam-inspired digital journal toolbar implementation.
 - Clear visual feedback for selected states
 - Professional shadow effects
 - Consistent spacing and alignment
+- Consistent use of Tailwind color tokens:
+  - Use exact hex values from Tailwind's color palette (e.g., zinc-300 must be #D4D4D8)
+  - No custom hex values that duplicate existing Tailwind colors
+  - SVG color standardization:
+    - Default body/background elements must use zinc-300 (#D4D4D8)
+    - Default dark elements (strokes, fills) must use zinc-500 (#71717B)
+    - Selected/hover states must use zinc-900 (#18181B) where zinc-500 was used in default state.
+    - Custom colors (from tool-specific palettes) only apply to elements meant to show the selected color
 
 ## Implementation Notes
 - Built with React + TypeScript
