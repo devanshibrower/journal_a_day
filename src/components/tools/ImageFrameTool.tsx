@@ -150,31 +150,22 @@ export const FramePatternPreview: React.FC<{ pattern: FramePattern; isSelected: 
   const [isHovered, setIsHovered] = useState(false);
   
   return (
-    <div className="relative" style={{ width: '24px', height: '24px', margin: '3px' }}>
-      {/* Selection ring - using a div instead of outline */}
-      {(isSelected || isHovered) && (
-        <div 
-          className="absolute rounded-md pointer-events-none transition-opacity duration-150"
-          style={{
-            top: '-2px',
-            left: '-2px',
-            width: '28px',
-            height: '28px',
-            border: `1px solid ${isSelected ? '#90A2B9' : 'rgba(144, 162, 185, 0.7)'}`,
-            opacity: isSelected ? 1 : 0.7,
-            zIndex: 10
-          }}
-        ></div>
-      )}
+    <div className="relative" style={{ width: '24px', height: '24px' }}>
+      {/* Background rounded square */}
+      <div className="absolute inset-0 w-full h-full rounded-md"></div>
       
       {/* Button for interaction */}
       <button
         onClick={onClick}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
-        className="absolute inset-0 w-full h-full rounded-md flex items-center justify-center transition-all"
+        className="absolute inset-0 w-full h-full rounded-md flex items-center justify-center transition-transform duration-150"
+        style={{ 
+          background: 'transparent',
+          transform: isHovered || isSelected ? 'scale(1.2)' : 'scale(1)'
+        }}
       >
-        {pattern.previewSvg(isSelected || isHovered ? '#18181B' : '#71717B')}
+        {pattern.previewSvg(isSelected ? '#18181B' : '#71717B')}
       </button>
     </div>
   );
