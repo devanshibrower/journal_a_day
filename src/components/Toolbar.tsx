@@ -187,9 +187,12 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
     >
       <div className="relative w-fit">
         {/* Options bar */}
-        <div className={`absolute bottom-full left-1/2 -translate-x-1/2 transition-all duration-300 ease-in-out
-          ${isOptionsExpanded ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'}`}>
-          <div className="rounded-full py-1.5 px-2">
+        <div className={`absolute bottom-full left-1/2 -translate-x-1/2
+          transition-all duration-300 ease-out
+          ${isOptionsExpanded 
+            ? 'translate-y-0 opacity-100 blur-none' 
+            : 'translate-y-4 opacity-0 blur-sm pointer-events-none'}`}>
+          <div className="rounded-full py-1.5 px-2 relative">
             <div className="flex items-center">
               <div className="flex gap-1.5">
                 {selectedTool === 'marker' && (
