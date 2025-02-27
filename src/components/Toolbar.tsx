@@ -18,6 +18,9 @@ interface ToolbarProps {
 type WashiTapeSelection = string;
 
 const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
+  // Add state to track the previous tool
+  const [previousTool, setPreviousTool] = useState<ToolType>(null);
+  
   // State for currently selected tool
   const [selectedTool, setSelectedTool] = useState<ToolType>(null);
   
@@ -68,17 +71,36 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
   ];
 
   const cloudColors = [
-    '#A7CFFF', // light blue
-    '#D5C9F6', // lavender
-    '#FFCBD0', // pink
-    '#C2E6D9', // mint
-    '#F9E0C0', // peach
+    '#7EB2FF', // deeper sky blue
+    '#B79FE6', // richer lavender
+    '#FFB3BA', // warmer pink
+    '#98D4C2', // deeper mint
+    '#F5C289', // warmer peach
   ];
 
   const tipTypes: MarkerTipType[] = ['thin', 'marker'];
 
+  // Function to generate a darker version of a color for the marker body
+  const getDarkerColor = (color: string) => {
+    // Convert hex to RGB
+    const r = parseInt(color.slice(1, 3), 16);
+    const g = parseInt(color.slice(3, 5), 16);
+    const b = parseInt(color.slice(5, 7), 16);
+    
+    // Make it darker and more muted
+    const darkerR = Math.floor(r * 0.8);
+    const darkerG = Math.floor(g * 0.8);
+    const darkerB = Math.floor(b * 0.8);
+    
+    // Convert back to hex
+    return `#${darkerR.toString(16).padStart(2, '0')}${darkerG.toString(16).padStart(2, '0')}${darkerB.toString(16).padStart(2, '0')}`;
+  };
+
   // Handle tool selection
   const handleToolSelect = (tool: ToolType) => {
+    // Store previous tool before updating
+    setPreviousTool(selectedTool);
+    
     // For all tools, including image frame, switch between them
     if (tool === selectedTool) {
       setSelectedTool(null);
@@ -189,8 +211,8 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
       <div className="relative w-full">
         {/* Options bar */}
         <AnimatePresence mode="wait">
-          {isOptionsExpanded && (
-            <motion.div 
+          {selectedTool && (
+            <motion.div
               className="absolute bottom-full w-full flex justify-center"
               initial={{ y: 16, opacity: 0, filter: 'blur(4px)' }}
               animate={{ y: 0, opacity: 1, filter: 'blur(0px)' }}
@@ -199,14 +221,33 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
             >
               <div className="rounded-xl py-1.5 px-2 relative">
                 <div className="overflow-hidden">
-                  <AnimatePresence mode="wait">
-                    <motion.div 
+                  <AnimatePresence>
+                    <motion.div
                       key={selectedTool}
                       className="flex items-center"
-                      initial={{ x: -20, opacity: 0 }}
-                      animate={{ x: 0, opacity: 1 }}
-                      exit={{ x: 20, opacity: 0 }}
-                      transition={{ duration: 0.2, ease: 'easeOut' }}
+                      initial={{ 
+                        opacity: 0,
+                        y: 16,
+                        filter: 'blur(4px)'
+                      }}
+                      animate={{ 
+                        opacity: 1,
+                        y: 0,
+                        filter: 'blur(0px)'
+                      }}
+                      exit={{ 
+                        opacity: 0,
+                        y: 16,
+                        filter: 'blur(4px)'
+                      }}
+                      transition={{ 
+                        duration: 0.3,
+                        ease: 'easeOut'
+                      }}
+                      style={{
+                        width: '100%',
+                        justifyContent: 'center'
+                      }}
                     >
                       <div className="flex gap-1">
                         {selectedTool === 'marker' && (
@@ -224,12 +265,12 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
                                 onMouseLeave={() => setHoveredTipType(null)}
                                 style={{ 
                                   background: 'transparent',
-                                  transform: markerTipType === 'marker' || hoveredTipType === 'marker' ? 'scale(1.2)' : 'scale(1)'
+                                  transform: markerTipType === 'marker' || hoveredTipType === 'marker' ? 'scale(1.3)' : 'scale(1)'
                                 }}
                               >
                                 <svg width="24" height="24" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                  <g transform="translate(3,2.5) scale(2.7)">
-                                    <path d="M0.615234 0.926502C0.615234 0.815615 0.689783 0.718582 0.796925 0.690011L3.07665 0.0820851C3.23203 0.0406499 3.38446 0.157764 3.38446 0.318576V2.46154H0.615234V0.926502Z" fill={markerTipType === 'marker' ? '#18181B' : '#71717B'}/>
+                                  <g transform="translate(3,1.5) scale(2.7)">
+                                    <path d="M0.615234 0.926502C0.615234 0.815615 0.689783 0.718582 0.796925 0.690011L3.07665 0.0820851C3.23203 0.0406499 3.38446 0.157764 3.38446 0.318576V2.46154H0.615234V0.926502Z" fill={markerTipType === 'marker' ? '#18181B' : '#A1A1AA'}/>
                                     <path d="M3.54954 2.26464C3.54325 2.20172 3.49031 2.15381 3.42708 2.15381H0.572922C0.509691 2.15381 0.456747 2.20172 0.450455 2.26464L0.312064 3.64855C0.309237 3.67682 0.296716 3.70325 0.276626 3.72334L0.0360484 3.96391C0.012967 3.987 0 4.0183 0 4.05094V4.49235C0 4.56032 0.0551034 4.61542 0.123077 4.61542H3.87692C3.9449 4.61542 4 4.56032 4 4.49235V4.05094C4 4.0183 3.98703 3.987 3.96395 3.96391L3.72337 3.72334C3.70328 3.70325 3.69076 3.67682 3.68794 3.64855L3.54954 2.26464Z" fill="#D4D4D8"/>
                                   </g>
                                 </svg>
@@ -249,12 +290,12 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
                                 onMouseLeave={() => setHoveredTipType(null)}
                                 style={{ 
                                   background: 'transparent',
-                                  transform: markerTipType === 'thin' || hoveredTipType === 'thin' ? 'scale(1.2)' : 'scale(1)'
+                                  transform: markerTipType === 'thin' || hoveredTipType === 'thin' ? 'scale(1.3)' : 'scale(1)'
                                 }}
                               >
                                 <svg width="24" height="24" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                  <g transform="translate(3,2.5) scale(2.7)">
-                                    <path d="M1.79504 0.0765867C1.81851 0.0296529 1.86648 0 1.91897 0V0C1.96902 0 2.01519 0.027 2.03973 0.0706316L3.5 2.66667H0.5L1.79504 0.0765867Z" fill={markerTipType === 'thin' ? '#18181B' : '#71717B'}/>
+                                  <g transform="translate(3,1.5) scale(2.7)">
+                                    <path d="M1.79504 0.0765867C1.81851 0.0296529 1.86648 0 1.91897 0V0C1.96902 0 2.01519 0.027 2.03973 0.0706316L3.5 2.66667H0.5L1.79504 0.0765867Z" fill={markerTipType === 'thin' ? '#18181B' : '#A1A1AA'}/>
                                     <path d="M3.54954 2.26464C3.54325 2.20172 3.49031 2.15381 3.42708 2.15381H0.572922C0.509691 2.15381 0.456747 2.20172 0.450455 2.26464L0.312064 3.64855C0.309237 3.67682 0.296716 3.70325 0.276626 3.72334L0.0360484 3.96391C0.012967 3.987 0 4.0183 0 4.05094V4.49235C0 4.56032 0.0551034 4.61542 0.123077 4.61542H3.87692C3.9449 4.61542 4 4.56032 4 4.49235V4.05094C4 4.0183 3.98703 3.987 3.96395 3.96391L3.72337 3.72334C3.70328 3.70325 3.69076 3.67682 3.68794 3.64855L3.54954 2.26464Z" fill="#D4D4D8"/>
                                   </g>
                                 </svg>
@@ -406,13 +447,13 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
 
         {/* Main toolbar */}
         <div className="bg-zinc-100 rounded-xl">
-          <div className="px-3 py-3 flex items-center gap-8">
+          <div className="px-2 py-2 flex items-center gap-6">
             <MarkerTool
               isSelected={selectedTool === 'marker'}
               onClick={() => handleToolSelect('marker')}
               color={markerColor}
               tipType={markerTipType}
-              bodyColor={selectedTool === 'marker' ? '#90A2B9' : '#D9D9D9'}
+              bodyColor={selectedTool === 'marker' ? getDarkerColor(markerColor) : '#D4D4D8'}
             />
             <WashiTapeTool
               isSelected={selectedTool === 'washiTape'}
