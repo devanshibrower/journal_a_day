@@ -4,20 +4,26 @@ import WashiTapeTool, { PatternPreview, WASHI_PATTERNS } from './tools/WashiTape
 import ImageFrameTool, { FramePatternPreview, FRAME_PATTERNS, FramePattern } from './tools/ImageFrameTool';
 import { motion, AnimatePresence } from 'framer-motion';
 import clsx from 'clsx';
+import { ToolType, ToolOptions } from './types';
 
 // Define tool types for type safety
-type ToolType = 'marker' | 'washiTape' | 'imageFrame' | null;
 type MarkerTipType = 'thin' | 'marker';
 
 // Interface for our toolbar props
 interface ToolbarProps {
   className?: string;
+  onToolSelect?: (tool: ToolType) => void;
+  onOptionsChange?: (options: Partial<ToolOptions>) => void;
 }
 
 // Define a type for washi tape selection - could be a pattern ID or a color
 type WashiTapeSelection = string;
 
-const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
+const Toolbar: React.FC<ToolbarProps> = ({ 
+  className,
+  onToolSelect,
+  onOptionsChange,
+}) => {
   // Add state to track the previous tool
   const [previousTool, setPreviousTool] = useState<ToolType>(null);
   
@@ -109,9 +115,11 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
       if (tool === 'imageFrame') {
         setSelectedFramePattern('regular');
       }
+      onToolSelect?.(null);
     } else {
       setSelectedTool(tool);
       setIsOptionsExpanded(true);
+      onToolSelect?.(tool);
     }
   };
 
@@ -145,6 +153,7 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
   // Handle washi tape selection (pattern or color)
   const handleWashiTapeSelection = (selection: WashiTapeSelection) => {
     setWashiTapeSelection(selection);
+    onOptionsChange?.({ washiTapeSelection: selection });
   };
 
   // Check if the current selection is a pattern or a color
@@ -167,13 +176,16 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
     switch (selectedTool) {
       case 'marker':
         setMarkerColor(color);
+        onOptionsChange?.({ markerColor: color });
         break;
       case 'washiTape':
         // For washi tape, selecting a color means deselecting any pattern
         setWashiTapeSelection(color);
+        onOptionsChange?.({ washiTapeSelection: color });
         break;
       case 'imageFrame':
         setFrameColor(color);
+        onOptionsChange?.({ frameColor: color });
         break;
     }
   };
@@ -195,12 +207,21 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
   // Update frame pattern selection to also set the appropriate default color
   const handleFramePatternSelect = (patternId: string) => {
     setSelectedFramePattern(patternId);
+    onOptionsChange?.({ framePattern: patternId });
     // Set default color based on pattern
     if (patternId === 'polaroid') {
       setFrameColor(polaroidColors[0]); // #E8E0D0
+      onOptionsChange?.({ frameColor: polaroidColors[0] });
     } else if (patternId === 'cloud') {
       setFrameColor(cloudColors[0]); // #A7CFFF
+      onOptionsChange?.({ frameColor: cloudColors[0] });
     }
+  };
+
+  // Update marker tip type selection
+  const handleMarkerTipSelect = (tipType: 'thin' | 'marker') => {
+    setMarkerTipType(tipType);
+    onOptionsChange?.({ markerTipType: tipType });
   };
 
   return (
@@ -259,7 +280,7 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
                               {/* Button for interaction */}
                               <button
                                 className="absolute inset-0 w-full h-full rounded-md flex items-center justify-center transition-transform duration-150"
-                                onClick={() => setMarkerTipType('marker')}
+                                onClick={() => handleMarkerTipSelect('marker')}
                                 title="Marker Tip"
                                 onMouseEnter={() => setHoveredTipType('marker')}
                                 onMouseLeave={() => setHoveredTipType(null)}
@@ -284,7 +305,7 @@ const Toolbar: React.FC<ToolbarProps> = ({ className }) => {
                               {/* Button for interaction */}
                               <button
                                 className="absolute inset-0 w-full h-full rounded-md flex items-center justify-center transition-transform duration-150"
-                                onClick={() => setMarkerTipType('thin')}
+                                onClick={() => handleMarkerTipSelect('thin')}
                                 title="Thin Tip"
                                 onMouseEnter={() => setHoveredTipType('thin')}
                                 onMouseLeave={() => setHoveredTipType(null)}

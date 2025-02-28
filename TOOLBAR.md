@@ -81,4 +81,4 @@ A FigJam-inspired digital journal toolbar implementation.
 - ask any questions that you have at any time
 - ask for assets if needed
 - add comments to the code to explain what you are doing and why, so its easy for me to understand the code
-- Dont make changes to things that are not mentioned while discussing an issue. double check with me before making any changes.
+- Dont make changes to things that are not mentioned while discussing an issue. double check with me before making any changes. 
