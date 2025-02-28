@@ -19,7 +19,7 @@ interface ImageFrameToolProps {
 
 // Frame pattern definitions
 export const FRAME_PATTERNS: FramePattern[] = [
-  {
+  /*{
     id: 'regular',
     svg: (color: string, isSelected: boolean, isHovered: boolean = false) => (
       <svg width="53" height="53" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -63,8 +63,8 @@ export const FRAME_PATTERNS: FramePattern[] = [
         </defs>
       </svg>
     )
-  },
-  {
+  },*/
+  /*{
     id: 'cloud',
     svg: (color: string, isSelected: boolean, isHovered: boolean = false) => (
       <svg width="53" height="53" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -103,7 +103,7 @@ export const FRAME_PATTERNS: FramePattern[] = [
         <circle cx="10.9839" cy="4.52128" r="1.0601" fill={color}/>
       </svg>
     )
-  },
+  },*/
   {
     id: 'polaroid',
     svg: (color: string, isSelected: boolean, isHovered: boolean = false) => (
@@ -175,24 +175,18 @@ const ImageFrameTool: React.FC<ImageFrameToolProps> = ({
   isSelected,
   onClick,
   color = '#000000',
-  selectedPattern = 'regular',
+  selectedPattern = 'polaroid',
   onPatternSelect
 }) => {
   const [isHovered, setIsHovered] = useState(false);
-  const currentPattern = FRAME_PATTERNS.find(p => p.id === selectedPattern);
+  const currentPattern = FRAME_PATTERNS.find(p => p.id === selectedPattern) || FRAME_PATTERNS[0];
 
-  // Only use color for polaroid and cloud frames
-  const getFrameColor = () => {
-    if (selectedPattern === 'regular') {
-      return '#D4D4D8'; // Default gray for regular frame
-    }
-    return color;
-  };
+  const getFrameColor = () => color;
 
   const handleClick = () => {
     onClick();
     if (onPatternSelect) {
-      onPatternSelect(selectedPattern);
+      onPatternSelect('polaroid');
     }
   };
 
@@ -205,7 +199,7 @@ const ImageFrameTool: React.FC<ImageFrameToolProps> = ({
         ${isSelected ? 'bg-gray-100' : ''}`}
       title="Image Frame Tool"
     >
-      {currentPattern && currentPattern.svg(getFrameColor(), isSelected, isHovered)}
+      {currentPattern.svg(getFrameColor(), isSelected, isHovered)}
     </button>
   );
 };

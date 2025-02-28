@@ -1,20 +1,10 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { ToolType, FrameToolState, FrameState, ImageFrame } from '../components/types';
+import { ToolType, DrawnPath, Point, ImageFrame, FrameToolState } from '../components/types';
 import { WASHI_PATTERNS, WashiTapePattern } from '../components/tools/WashiTapeTool';
 
-interface Point {
-  x: number;
-  y: number;
-}
-
-interface WashiTapeElement {
-  x: number;
-  y: number;
-  width: number;
-  rotation: number;
-  pattern?: string;
-  color?: string;
-}
+// Constants for frame dimensions
+const FRAME_WIDTH = 110;
+const FRAME_HEIGHT = 140;
 
 interface CanvasProps {
   width?: number;
@@ -29,7 +19,6 @@ interface CanvasProps {
   };
   undoRef?: React.MutableRefObject<(() => void) | null>;
   redoRef?: React.MutableRefObject<(() => void) | null>;
-  clearRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 const Canvas: React.FC<CanvasProps> = ({
@@ -37,19 +26,60 @@ const Canvas: React.FC<CanvasProps> = ({
   toolOptions = {},
   undoRef,
   redoRef,
-  clearRef,
 }) => {
   // Canvas refs
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const frameLayerRef = useRef<HTMLDivElement>(null);
-  
-  // Drawing state
+
+  // Frame state
+  const [frameState, setFrameState] = useState<{
+    frames: ImageFrame[];
+    selectedId: string | null;
+    isDragging: boolean;
+    dragOffset: { x: number; y: number };
+    toolState: FrameToolState;
+  }>({
+    frames: [], // Initialize with empty frames array
+    selectedId: null,
+    isDragging: false,
+    dragOffset: { x: 0, y: 0 },
+    toolState: FrameToolState.INACTIVE
+  });
+
+  // Resize and rotate state
+  const [isResizing, setIsResizing] = useState(false);
+  const [isRotating, setIsRotating] = useState(false);
+  const [resizeStartData, setResizeStartData] = useState<{
+    startX: number;
+    startY: number;
+    startWidth: number;
+    startHeight: number;
+    aspectRatio: number;
+    handleOffset: { x: number; y: number };
+  } | null>(null);
+  const [rotateStartAngle, setRotateStartAngle] = useState(0);
+
+  // RAF reference for smooth resizing
+  const rafRef = useRef<number>();
+  const currentResizeData = useRef<{
+    mouseX: number;
+    mouseY: number;
+    frame: ImageFrame;
+  } | null>(null);
+
+  // Cursor position for all tools
+  const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
+
+  // Mouse position for preview
+  const [mousePosition, setMousePosition] = useState<{ x: number; y: number } | null>(null);
+
+  // Drawing states
   const [isDrawing, setIsDrawing] = useState(false);
-  const [lastX, setLastX] = useState(0);
-  const [lastY, setLastY] = useState(0);
-  const pointsBuffer = useRef<Point[]>([]);
+  const [currentPath, setCurrentPath] = useState<Point[]>([]);
+  const [paths, setPaths] = useState<DrawnPath[]>([]);
+  const [currentStep, setCurrentStep] = useState(-1);
+  const isDrawingRef = useRef(false);
 
   // Washi tape state
   const [isPlacingWashiTape, setIsPlacingWashiTape] = useState(false);
@@ -60,25 +90,6 @@ const Canvas: React.FC<CanvasProps> = ({
 
   // History state
   const [history, setHistory] = useState<ImageData[]>([]);
-  const [currentStep, setCurrentStep] = useState(-1);
-  const isDrawingRef = useRef(false);
-
-  // Consolidated frame state
-  const [frameState, setFrameState] = useState<FrameState>({
-    frames: [],
-    selectedId: null,
-    isDragging: false,
-    dragOffset: { x: 0, y: 0 },
-    toolState: FrameToolState.INACTIVE
-  });
-
-  // Constants for frame dimensions
-  const FRAME_WIDTH = 120;
-  const FRAME_HEIGHT = 150;
-  const FRAME_PADDING = 12;
-  const FRAME_BOTTOM = 36;
-
-  const [mousePosition, setMousePosition] = useState<Point>({ x: 0, y: 0 });
 
   // Initialize offscreen canvas
   useEffect(() => {
@@ -154,22 +165,115 @@ const Canvas: React.FC<CanvasProps> = ({
     };
   };
 
-  // Handle mouse movement for frame preview
+  // Reset mouse position when tool changes
+  useEffect(() => {
+    setMousePosition(null);
+  }, [selectedTool]);
+
+  // Handle mouse movement
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
-
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
     
-    setMousePosition({ x, y });
+    // Handle frame dragging
+    if (frameState.isDragging && frameState.selectedId) {
+      const frame = frameState.frames.find(f => f.id === frameState.selectedId);
+      if (!frame) return;
+      
+      // Calculate new position
+      const newX = e.clientX - frameState.dragOffset.x;
+      const newY = e.clientY - frameState.dragOffset.y;
+      
+      // Update frame position
+      setFrameState(prev => ({
+        ...prev,
+        frames: prev.frames.map(f => 
+          f.id === prev.selectedId ? { ...f, x: newX, y: newY } : f
+        )
+      }));
+    }
+    
+    // Handle resizing
+    if (isResizing && frameState.selectedId && resizeStartData) {
+      const frame = frameState.frames.find(f => f.id === frameState.selectedId);
+      if (!frame) return;
+      
+      // Calculate the distance moved from the original start position
+      const deltaX = e.clientX - resizeStartData.startX;
+      const deltaY = e.clientY - resizeStartData.startY;
+      
+      // Calculate scale based on diagonal movement for smoother resizing
+      const diagonal = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+      const direction = deltaX + deltaY > 0 ? 1 : -1;
+      const scaleFactor = 1 + (direction * diagonal / Math.sqrt(resizeStartData.startWidth * resizeStartData.startWidth + resizeStartData.startHeight * resizeStartData.startHeight));
+      
+      // Apply scaling with minimum size constraint
+      const baseScale = Math.max(0.2, scaleFactor); // Allow scaling down to 20% of original size
+      const newWidth = resizeStartData.startWidth * baseScale;
+      const newHeight = resizeStartData.startHeight * baseScale;
+      
+      // Only update if above minimum size
+      if (newWidth >= 50 && newHeight >= 50) {
+        setFrameState(prev => ({
+          ...prev,
+          frames: prev.frames.map(f => 
+            f.id === prev.selectedId ? { 
+              ...f, 
+              width: newWidth,
+              height: newHeight
+            } : f
+          )
+        }));
+      }
+    }
+    
+    // Handle rotating
+    if (isRotating && frameState.selectedId) {
+      const frame = frameState.frames.find(f => f.id === frameState.selectedId);
+      if (!frame) return;
+      
+      const centerX = frame.x;
+      const centerY = frame.y;
+      
+      // Calculate current angle
+      const currentAngleRad = Math.atan2(e.clientY - centerY, e.clientX - centerX);
+      const angleDiff = currentAngleRad - rotateStartAngle;
+      const angleDiffDeg = angleDiff * (180 / Math.PI);
+      
+      // Update frame rotation
+      setFrameState(prev => ({
+        ...prev,
+        frames: prev.frames.map(f => 
+          f.id === prev.selectedId ? { 
+            ...f, 
+            rotation: (f.rotation + angleDiffDeg) % 360
+          } : f
+        )
+      }));
+      
+      setRotateStartAngle(currentAngleRad);
+    }
+    
+    // Update cursor position
+    setCursorPosition({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    });
+
+    // Update mouse position for frame preview
+    if (selectedTool === 'imageFrame' && frameState.toolState === FrameToolState.PLACING) {
+      setMousePosition({
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      });
+    }
 
     // Handle drawing tools
     if (selectedTool === 'marker' && isDrawing) {
       const coords = getScaledCoords(e);
-      pointsBuffer.current.push(coords);
-      if (pointsBuffer.current.length > 4) {
-        pointsBuffer.current = pointsBuffer.current.slice(-4);
+      currentPath.push(coords);
+      if (currentPath.length > 4) {
+        currentPath.splice(0, currentPath.length - 4);
       }
 
       const offscreenCanvas = offscreenCanvasRef.current;
@@ -179,11 +283,10 @@ const Canvas: React.FC<CanvasProps> = ({
       if (!offscreenCtx) return;
 
       offscreenCtx.strokeStyle = toolOptions.markerColor || '#000000';
-      drawSmoothLine(offscreenCtx, pointsBuffer.current);
+      drawSmoothLine(offscreenCtx, currentPath);
       drawCanvas();
 
-      setLastX(coords.x);
-      setLastY(coords.y);
+      setCurrentPath(currentPath);
     } else if (selectedTool === 'washiTape' && isPlacingWashiTape) {
       const coords = getScaledCoords(e);
       const dx = coords.x - washiTapeStartX;
@@ -196,34 +299,10 @@ const Canvas: React.FC<CanvasProps> = ({
       drawCanvas();
     }
 
-    // Always redraw canvas to update frame preview
-    drawCanvas();
-  };
-
-  // Handle canvas click
-  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (selectedTool === 'imageFrame' && frameState.toolState === FrameToolState.PLACING) {
-      const rect = canvasRef.current?.getBoundingClientRect();
-      if (!rect) return;
-
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-
-      const newFrame: ImageFrame = {
-        id: Math.random().toString(36).substr(2, 9),
-        x,
-        y,
-        width: FRAME_WIDTH,
-        height: FRAME_HEIGHT,
-        rotation: 0
-      };
-
-      setFrameState(prev => ({
-        ...prev,
-        frames: [...prev.frames, newFrame],
-        selectedId: newFrame.id,
-        toolState: selectedTool === 'imageFrame' ? FrameToolState.PLACING : FrameToolState.INACTIVE
-      }));
+    // Update current resize data for RAF
+    if (isResizing && currentResizeData.current) {
+      currentResizeData.current.mouseX = e.clientX;
+      currentResizeData.current.mouseY = e.clientY;
     }
   };
 
@@ -240,7 +319,7 @@ const Canvas: React.FC<CanvasProps> = ({
     ctx.fillStyle = '#FAFAFA';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Draw offscreen content (markers, etc)
+    // Draw offscreen content
     ctx.drawImage(offscreenCanvas, 0, 0);
 
     // Draw grid
@@ -256,11 +335,6 @@ const Canvas: React.FC<CanvasProps> = ({
         washiTapeRotation,
         toolOptions.washiTapeSelection
       );
-    }
-
-    // Draw frame preview if placing
-    if (selectedTool === 'imageFrame' && frameState.toolState === FrameToolState.PLACING) {
-      drawFramePreview(ctx);
     }
   };
 
@@ -286,86 +360,6 @@ const Canvas: React.FC<CanvasProps> = ({
     }
     
     ctx.stroke();
-    ctx.restore();
-  };
-
-  // Draw a single frame
-  const drawFrame = (ctx: CanvasRenderingContext2D, frame: ImageFrame) => {
-    ctx.save();
-    
-    // Draw frame background
-    ctx.fillStyle = '#FFFFFF';
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
-    ctx.shadowBlur = 8;
-    ctx.shadowOffsetY = 2;
-    
-    ctx.beginPath();
-    ctx.roundRect(
-      frame.x - frame.width/2,
-      frame.y - frame.height/2,
-      frame.width,
-      frame.height,
-      8
-    );
-    ctx.fill();
-    
-    // Draw upload placeholder if no image
-    if (!frame.imageUrl) {
-      const centerX = frame.x;
-      const centerY = frame.y;
-      const iconSize = 40;
-      
-      ctx.strokeStyle = '#CCCCCC';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(centerX - iconSize/2, centerY);
-      ctx.lineTo(centerX + iconSize/2, centerY);
-      ctx.moveTo(centerX, centerY - iconSize/2);
-      ctx.lineTo(centerX, centerY + iconSize/2);
-      ctx.stroke();
-    }
-    
-    ctx.restore();
-  };
-
-  // Draw frame preview
-  const drawFramePreview = (ctx: CanvasRenderingContext2D) => {
-    if (selectedTool !== 'imageFrame' || frameState.toolState !== FrameToolState.PLACING) return;
-
-    const dpr = window.devicePixelRatio || 1;
-    ctx.save();
-    
-    // Set up dashed preview style
-    ctx.strokeStyle = '#666666';
-    ctx.lineWidth = 2 * dpr;
-    ctx.setLineDash([5 * dpr, 5 * dpr]);
-    
-    // Draw preview rectangle
-    const x = mousePosition.x * dpr;
-    const y = mousePosition.y * dpr;
-    
-    ctx.beginPath();
-    ctx.rect(
-      x - (FRAME_WIDTH * dpr)/2,
-      y - (FRAME_HEIGHT * dpr)/2,
-      FRAME_WIDTH * dpr,
-      FRAME_HEIGHT * dpr
-    );
-    ctx.stroke();
-    
-    // Draw plus icon in center
-    const iconSize = 20 * dpr;
-    ctx.strokeStyle = '#666666';
-    ctx.lineWidth = 2 * dpr;
-    ctx.setLineDash([]);
-    
-    ctx.beginPath();
-    ctx.moveTo(x - iconSize/2, y);
-    ctx.lineTo(x + iconSize/2, y);
-    ctx.moveTo(x, y - iconSize/2);
-    ctx.lineTo(x, y + iconSize/2);
-    ctx.stroke();
-    
     ctx.restore();
   };
 
@@ -539,9 +533,7 @@ const Canvas: React.FC<CanvasProps> = ({
     if (selectedTool === 'marker') {
       setIsDrawing(true);
       isDrawingRef.current = true;
-      setLastX(coords.x);
-      setLastY(coords.y);
-      pointsBuffer.current = [coords];
+      setCurrentPath([coords]);
     } else if (selectedTool === 'washiTape') {
       setIsPlacingWashiTape(true);
       setWashiTapeStartX(coords.x);
@@ -564,17 +556,16 @@ const Canvas: React.FC<CanvasProps> = ({
       const offscreenCtx = offscreenCanvas.getContext('2d', { alpha: false });
       if (!offscreenCtx) return;
 
-      pointsBuffer.current.push(coords);
-      if (pointsBuffer.current.length > 4) {
-        pointsBuffer.current = pointsBuffer.current.slice(-4);
+      currentPath.push(coords);
+      if (currentPath.length > 4) {
+        currentPath.splice(0, currentPath.length - 4);
       }
 
       offscreenCtx.strokeStyle = toolOptions.markerColor || '#000000';
-      drawSmoothLine(offscreenCtx, pointsBuffer.current);
+      drawSmoothLine(offscreenCtx, currentPath);
       drawCanvas();
 
-      setLastX(coords.x);
-      setLastY(coords.y);
+      setCurrentPath(currentPath);
     } else if (selectedTool === 'washiTape' && isPlacingWashiTape) {
       const dx = coords.x - washiTapeStartX;
       const dy = coords.y - washiTapeStartY;
@@ -587,13 +578,127 @@ const Canvas: React.FC<CanvasProps> = ({
     }
   };
 
-  // Stop drawing
+  // Handle frame mouse down for dragging
+  const handleFrameMouseDown = (e: React.MouseEvent, frameId: string) => {
+    e.stopPropagation();
+    
+    const frame = frameState.frames.find(f => f.id === frameId);
+    if (!frame) return;
+    
+    setFrameState(prev => ({
+      ...prev,
+      selectedId: frameId,
+      isDragging: true,
+      dragOffset: {
+        x: e.clientX - frame.x,
+        y: e.clientY - frame.y
+      },
+      toolState: FrameToolState.DRAGGING
+    }));
+  };
+
+  // Handle resize start
+  const handleResizeStart = (e: React.MouseEvent, frameId: string) => {
+    e.stopPropagation();
+    
+    const frame = frameState.frames.find(f => f.id === frameId);
+    if (!frame) return;
+    
+    // Calculate handle offset from mouse position
+    const handleRect = (e.target as HTMLElement).getBoundingClientRect();
+    const handleOffset = {
+      x: e.clientX - (handleRect.left + handleRect.width / 2),
+      y: e.clientY - (handleRect.top + handleRect.height / 2)
+    };
+    
+    setFrameState(prev => ({ ...prev, selectedId: frameId }));
+    setIsResizing(true);
+    
+    // Store initial resize data
+    setResizeStartData({
+      startX: e.clientX - handleOffset.x,
+      startY: e.clientY - handleOffset.y,
+      startWidth: frame.width,
+      startHeight: frame.height,
+      aspectRatio: frame.width / frame.height,
+      handleOffset
+    });
+
+    // Initialize current resize data
+    currentResizeData.current = {
+      mouseX: e.clientX,
+      mouseY: e.clientY,
+      frame
+    };
+
+    // Start RAF loop
+    rafRef.current = requestAnimationFrame(updateResize);
+  };
+
+  // Update resize with RAF
+  const updateResize = useCallback(() => {
+    if (!isResizing || !resizeStartData || !currentResizeData.current) return;
+
+    const { mouseX, mouseY, frame } = currentResizeData.current;
+    const { startWidth, startHeight, startX, startY, aspectRatio } = resizeStartData;
+
+    // Calculate deltas with handle offset correction
+    const deltaX = mouseX - startX;
+    const deltaY = mouseY - startY;
+
+    // Calculate new dimensions while maintaining aspect ratio
+    let newWidth = Math.max(50, startWidth + deltaX);
+    let newHeight = newWidth / aspectRatio;
+
+    // Ensure minimum height
+    if (newHeight < 50) {
+      newHeight = 50;
+      newWidth = newHeight * aspectRatio;
+    }
+
+    // Update frame size
+    setFrameState(prev => ({
+      ...prev,
+      frames: prev.frames.map(f =>
+        f.id === frame.id ? {
+          ...f,
+          width: newWidth,
+          height: newHeight
+        } : f
+      )
+    }));
+
+    // Continue RAF loop if still resizing
+    if (isResizing) {
+      rafRef.current = requestAnimationFrame(updateResize);
+    }
+  }, [isResizing, resizeStartData]);
+
+  // Handle rotation start
+  const handleRotateStart = (e: React.MouseEvent, frameId: string) => {
+    e.stopPropagation();
+    
+    const frame = frameState.frames.find(f => f.id === frameId);
+    if (!frame) return;
+    
+    const centerX = frame.x;
+    const centerY = frame.y;
+    
+    // Calculate angle from center of frame to mouse position
+    const angleRad = Math.atan2(e.clientY - centerY, e.clientX - centerX);
+    
+    setFrameState(prev => ({ ...prev, selectedId: frameId }));
+    setIsRotating(true);
+    setRotateStartAngle(angleRad);
+  };
+
+  // Stop drawing and interactions
   const stopDrawing = () => {
     if (selectedTool === 'marker' && isDrawingRef.current) {
       saveToHistory();
       setIsDrawing(false);
       isDrawingRef.current = false;
-      pointsBuffer.current = [];
+      setCurrentPath([]);
     } else if (selectedTool === 'washiTape' && isPlacingWashiTape) {
       const offscreenCanvas = offscreenCanvasRef.current;
       if (!offscreenCanvas) return;
@@ -614,180 +719,33 @@ const Canvas: React.FC<CanvasProps> = ({
       saveToHistory();
       drawCanvas();
     }
-  };
 
-  // Handle frame placement
-  const handleFramePlacement = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (selectedTool !== 'imageFrame') return;
-
-    const rect = frameLayerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-
-    const newFrame: ImageFrame = {
-      id: Math.random().toString(36).substr(2, 9),
-      x,
-      y,
-      width: 120,
-      height: 150,
-      rotation: 0
-    };
-
-    setFrameState(prev => ({
-      ...prev,
-      frames: [...prev.frames, newFrame],
-      toolState: FrameToolState.PLACING // Keep in placing mode for multiple frames
-    }));
-    
-    // Deselect tool after placing frame
-    const event = new CustomEvent('deselectTool');
-    window.dispatchEvent(event);
-  };
-
-  // Handle file selection
-  const handleFileInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !frameState.selectedId) return;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const imageUrl = reader.result as string;
+    // End frame dragging
+    if (frameState.isDragging) {
       setFrameState(prev => ({
         ...prev,
-        frames: prev.frames.map(frame => 
-          frame.id === prev.selectedId ? { ...frame, imageUrl } : frame
-        )
+        isDragging: false,
+        toolState: prev.selectedId ? FrameToolState.SELECTED : FrameToolState.PLACING
       }));
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
-  };
-
-  // Handle frame click
-  const handleFrameClick = (e: React.MouseEvent, frameId: string) => {
-    e.stopPropagation();
-    e.preventDefault();
-    
-    setFrameState(prev => ({
-      ...prev,
-      selectedId: frameId,
-      toolState: FrameToolState.SELECTED
-    }));
-  };
-
-  // Handle plus button click
-  const handlePlusButtonClick = (e: React.MouseEvent, frameId: string) => {
-    e.stopPropagation();
-    e.preventDefault();
-    setFrameState(prev => ({
-      ...prev,
-      selectedId: frameId
-    }));
-    fileInputRef.current?.click();
-  };
-
-  // Handle frame mouse down for dragging
-  const handleFrameMouseDown = (e: React.MouseEvent, frameId: string) => {
-    e.stopPropagation();
-    e.preventDefault();
-    
-    const frame = frameState.frames.find(f => f.id === frameId);
-    if (!frame) return;
-
-    setFrameState(prev => ({
-      ...prev,
-      selectedId: frameId,
-      isDragging: true,
-      dragOffset: {
-        x: e.clientX - frame.x,
-        y: e.clientY - frame.y
-      },
-      toolState: FrameToolState.DRAGGING
-    }));
-  };
-
-  // Handle frame mouse move for dragging
-  const handleFrameMouseMove = (e: React.MouseEvent) => {
-    if (!frameState.isDragging || !frameState.selectedId) return;
-
-    const frame = frameState.frames.find(f => f.id === frameState.selectedId);
-    if (!frame) return;
-
-    const newX = e.clientX - frameState.dragOffset.x;
-    const newY = e.clientY - frameState.dragOffset.y;
-
-    setFrameState(prev => ({
-      ...prev,
-      frames: prev.frames.map(f =>
-        f.id === prev.selectedId
-          ? { ...f, x: newX, y: newY }
-          : f
-      )
-    }));
-  };
-
-  // Handle frame mouse up to stop dragging
-  const handleFrameMouseUp = () => {
-    setFrameState(prev => ({
-      ...prev,
-      isDragging: false,
-      toolState: prev.selectedId ? FrameToolState.SELECTED : prev.toolState
-    }));
-  };
-
-  // Undo/redo functions
-  const undo = useCallback(() => {
-    if (currentStep > 0) {
-      const offscreenCanvas = offscreenCanvasRef.current;
-      if (!offscreenCanvas) return;
-
-      const ctx = offscreenCanvas.getContext('2d', { alpha: false });
-      if (!ctx) return;
-
-      const newStep = currentStep - 1;
-      ctx.putImageData(history[newStep], 0, 0);
-      setCurrentStep(newStep);
-      drawCanvas();
     }
-  }, [currentStep, history]);
 
-  const redo = useCallback(() => {
-    if (currentStep < history.length - 1) {
-      const offscreenCanvas = offscreenCanvasRef.current;
-      if (!offscreenCanvas) return;
-
-      const ctx = offscreenCanvas.getContext('2d', { alpha: false });
-      if (!ctx) return;
-
-      const newStep = currentStep + 1;
-      ctx.putImageData(history[newStep], 0, 0);
-      setCurrentStep(newStep);
-      drawCanvas();
+    // Clean up resize state
+    if (isResizing) {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+      }
+      currentResizeData.current = null;
     }
-  }, [currentStep, history]);
 
-  // Clear canvas
-  const clearCanvas = useCallback(() => {
-    const offscreenCanvas = offscreenCanvasRef.current;
-    if (!offscreenCanvas) return;
-
-    const ctx = offscreenCanvas.getContext('2d', { alpha: false });
-    if (!ctx) return;
-
-    ctx.fillStyle = '#FAFAFA';
-    ctx.fillRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
-    saveToHistory();
-    drawCanvas();
-  }, [saveToHistory]);
+    setIsResizing(false);
+    setIsRotating(false);
+  };
 
   // Expose methods through refs
   useEffect(() => {
-    if (undoRef) undoRef.current = undo;
-    if (redoRef) redoRef.current = redo;
-    if (clearRef) clearRef.current = clearCanvas;
-  }, [undo, redo, clearCanvas]);
+    if (undoRef) undoRef.current = saveToHistory;
+    if (redoRef) redoRef.current = saveToHistory;
+  }, [saveToHistory]);
 
   // Handle keyboard shortcuts
   useEffect(() => {
@@ -795,35 +753,139 @@ const Canvas: React.FC<CanvasProps> = ({
       if (e.key.toLowerCase() === 'z' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         if (e.shiftKey) {
-          redo();
+          saveToHistory();
         } else {
-          undo();
+          saveToHistory();
         }
       }
     };
 
     window.addEventListener('keydown', handleKeyboard);
     return () => window.removeEventListener('keydown', handleKeyboard);
-  }, [undo, redo]);
+  }, [saveToHistory]);
 
-  // Update frame tool state when selected tool changes
+  // Update tool state when selected tool changes
   useEffect(() => {
+    console.log('Tool changed to:', selectedTool);
     if (selectedTool === 'imageFrame') {
-      setFrameState(prev => ({
-        ...prev,
-        toolState: FrameToolState.PLACING,
-        selectedId: null // Clear selection when entering placing mode
-      }));
+      setFrameState(prev => {
+        console.log('Setting frameState to PLACING');
+        return {
+          ...prev,
+          toolState: FrameToolState.PLACING
+        };
+      });
     } else {
       setFrameState(prev => ({
         ...prev,
-        toolState: FrameToolState.INACTIVE
+        toolState: FrameToolState.INACTIVE,
+        selectedId: null
       }));
     }
   }, [selectedTool]);
 
+  // Handle canvas clicks for image frames
+  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    console.log('Canvas clicked, tool:', selectedTool, 'toolState:', frameState.toolState);
+    
+    if (selectedTool === 'imageFrame' && frameState.toolState === FrameToolState.PLACING) {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      
+      const newFrame: ImageFrame = {
+        type: 'imageFrame',
+        id: Math.random().toString(36).substr(2, 9),
+        x,
+        y,
+        width: FRAME_WIDTH,
+        height: FRAME_HEIGHT,
+        rotation: 0,
+        color: toolOptions.frameColor || '#E8E0D0' // Default polaroid color
+      };
+      
+      console.log('New frame created:', newFrame);
+      
+      setFrameState(prev => {
+        const newState = {
+          ...prev,
+          frames: [...prev.frames, newFrame],
+          selectedId: newFrame.id,
+          toolState: FrameToolState.SELECTED
+        };
+        console.log('Current frames:', newState.frames);
+        return newState;
+      });
+    }
+  };
+
+  // Handle image upload for frames
+  const handleImageUpload = (frameId: string) => {
+    setFrameState(prev => ({
+      ...prev,
+      selectedId: frameId
+    }));
+    
+    fileInputRef.current?.click();
+  };
+
+  // Process selected image file
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !frameState.selectedId) return;
+    
+    const reader = new FileReader();
+    reader.onload = () => {
+      const imageUrl = reader.result as string;
+      
+      setFrameState(prev => ({
+        ...prev,
+        frames: prev.frames.map(frame => 
+          frame.id === prev.selectedId
+            ? { ...frame, imageUrl }
+            : frame
+        )
+      }));
+    };
+    
+    reader.readAsDataURL(file);
+    e.target.value = ''; // Reset file input
+  };
+
+  // Add global mouse up handler
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      stopDrawing();
+      
+      if (frameState.isDragging) {
+        setFrameState(prev => ({
+          ...prev,
+          isDragging: false,
+          toolState: prev.selectedId ? FrameToolState.SELECTED : FrameToolState.PLACING
+        }));
+      }
+      
+      setIsResizing(false);
+      setIsRotating(false);
+    };
+    
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+  }, [frameState.isDragging, frameState.selectedId]);
+
+  // Clean up RAF on unmount and when resizing ends
+  useEffect(() => {
+    return () => {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+      }
+    };
+  }, []);
+
   return (
-    <div className="absolute inset-0 w-full h-full">
+    <div className="relative w-full h-full">
       <canvas
         ref={canvasRef}
         className="w-full h-full bg-zinc-50"
@@ -834,80 +896,142 @@ const Canvas: React.FC<CanvasProps> = ({
         onClick={handleCanvasClick}
         style={{ touchAction: 'none' }}
       />
-      <div
-        ref={frameLayerRef}
+
+      {/* Frame rendering layer */}
+      <div 
         className="absolute inset-0 pointer-events-none"
-        onMouseMove={handleFrameMouseMove}
-        onMouseUp={handleFrameMouseUp}
-        onMouseLeave={handleFrameMouseUp}
-        style={{ pointerEvents: frameState.frames.length > 0 ? 'auto' : 'none' }}
+        style={{ 
+          position: 'absolute', 
+          top: 0, 
+          left: 0, 
+          width: '100%', 
+          height: '100%',
+          pointerEvents: selectedTool === 'imageFrame' || frameState.selectedId ? 'auto' : 'none'
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          handleCanvasClick(e as unknown as React.MouseEvent<HTMLCanvasElement>);
+        }}
+        onMouseMove={(e) => {
+          e.stopPropagation();
+          handleMouseMove(e as unknown as React.MouseEvent<HTMLCanvasElement>);
+        }}
+        onMouseUp={(e) => {
+          e.stopPropagation();
+          stopDrawing();
+        }}
+        onMouseOut={(e) => {
+          e.stopPropagation();
+          stopDrawing();
+        }}
       >
+        {/* Preview frame */}
+        {selectedTool === 'imageFrame' && frameState.toolState === FrameToolState.PLACING && (
+          <div
+            className="absolute border-2 border-dashed border-gray-500 bg-gray-100 bg-opacity-30"
+            style={{
+              left: cursorPosition.x,
+              top: cursorPosition.y,
+              width: `${FRAME_WIDTH}px`,
+              height: `${FRAME_HEIGHT}px`,
+              transform: 'translate(-50%, -50%)',
+              pointerEvents: 'none'
+            }}
+          >
+            <div className="absolute inset-0 flex items-center justify-center">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-500">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </div>
+          </div>
+        )}
+
+        {(() => { console.log('Rendering frames:', frameState.frames); return null; })()}
         {frameState.frames.map(frame => (
           <div
             key={frame.id}
-            className={`absolute transition-transform ${frameState.selectedId === frame.id ? 'ring-2 ring-blue-500 ring-offset-2' : ''}`}
+            className={`absolute ${frameState.selectedId === frame.id ? 'ring-2 ring-blue-500 ring-offset-2' : ''}`}
             style={{
               left: frame.x,
               top: frame.y,
               width: `${frame.width}px`,
               height: `${frame.height}px`,
-              backgroundColor: 'white',
-              borderRadius: '8px',
-              boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-              pointerEvents: 'auto',
-              transform: `translate(-50%, -50%)`,
-              cursor: frameState.isDragging ? 'grabbing' : 'grab',
-              transition: frameState.isDragging ? 'none' : 'transform 0.15s ease-out',
-              zIndex: frameState.selectedId === frame.id ? 10 : 1
+              backgroundColor: frame.color,
+              borderRadius: '2px',
+              transform: `translate(-50%, -50%) rotate(${frame.rotation}deg)`,
+              padding: '8px',
+              paddingBottom: '36px',
+              cursor: frameState.isDragging && frameState.selectedId === frame.id ? 'grabbing' : 'grab',
+              transition: isResizing ? 'none' : 'all 0.1s ease-out',
+              willChange: isResizing ? 'width, height' : 'auto'
             }}
-            onClick={(e) => handleFrameClick(e, frame.id)}
             onMouseDown={(e) => handleFrameMouseDown(e, frame.id)}
           >
             {frame.imageUrl ? (
               <img
                 src={frame.imageUrl}
                 alt=""
-                className="w-full h-full object-cover rounded-lg select-none"
-                style={{ padding: '12px', paddingBottom: '36px' }}
+                className="w-full h-full object-cover"
+                style={{
+                  transition: isResizing ? 'none' : 'all 0.1s ease-out',
+                  willChange: isResizing ? 'width, height' : 'auto'
+                }}
                 draggable={false}
               />
             ) : (
-              <div 
-                className="absolute inset-0 flex items-center justify-center cursor-pointer"
-              >
+              <div className="w-full h-full flex items-center justify-center bg-gray-100">
                 <button
-                  className="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center"
-                  onClick={(e) => handlePlusButtonClick(e, frame.id)}
+                  className="w-12 h-12 rounded-full bg-white hover:bg-gray-200 flex items-center justify-center shadow-sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleImageUpload(frame.id);
+                  }}
                 >
-                  <svg
-                    width="24"
-                    height="24"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    className="text-gray-400"
-                  >
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-400">
                     <path d="M12 5v14M5 12h14" />
                   </svg>
                 </button>
               </div>
             )}
+
+            {/* Resize and rotate controls */}
+            {frameState.selectedId === frame.id && (
+              <>
+                {/* Resize handle */}
+                <div
+                  className="absolute bottom-0 right-0 w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-se-resize hover:scale-125"
+                  style={{ 
+                    transform: 'translate(50%, 50%)',
+                    transition: isResizing ? 'none' : 'transform 0.1s ease-out',
+                    willChange: isResizing ? 'transform' : 'auto'
+                  }}
+                  onMouseDown={(e) => handleResizeStart(e, frame.id)}
+                />
+                
+                {/* Rotate handle */}
+                <div
+                  className="absolute top-0 right-0 w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-crosshair hover:scale-125"
+                  style={{ 
+                    transform: 'translate(50%, -50%)',
+                    transition: isResizing ? 'none' : 'transform 0.1s ease-out',
+                    willChange: isResizing ? 'transform' : 'auto'
+                  }}
+                  onMouseDown={(e) => handleRotateStart(e, frame.id)}
+                />
+              </>
+            )}
           </div>
         ))}
       </div>
-      <input
-        ref={fileInputRef}
+
+      {/* Hidden file input for image upload */}
+      <input 
         type="file"
-        accept="image/*"
+        ref={fileInputRef}
         className="hidden"
-        onChange={handleFileInput}
+        accept="image/*"
+        onChange={handleFileChange}
       />
-      {frameState.toolState === FrameToolState.PLACING && (
-        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 bg-white px-4 py-2 rounded-lg shadow-sm text-sm text-gray-600">
-          Click anywhere to place a frame
-        </div>
-      )}
     </div>
   );
 };
