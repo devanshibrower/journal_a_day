@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, forwardRef } from 'react';
 import MarkerTool from './tools/MarkerTool';
 import WashiTapeTool, { PatternPreview, WASHI_PATTERNS } from './tools/WashiTapeTool';
 import ImageFrameTool, { FramePatternPreview, FRAME_PATTERNS, FramePattern } from './tools/ImageFrameTool';
@@ -19,11 +19,11 @@ interface ToolbarProps {
 // Define a type for washi tape selection - could be a pattern ID or a color
 type WashiTapeSelection = string;
 
-const Toolbar: React.FC<ToolbarProps> = ({ 
+const Toolbar = forwardRef<HTMLDivElement, ToolbarProps>(({ 
   className,
   onToolSelect,
   onOptionsChange,
-}) => {
+}, ref) => {
   // Add state to track the previous tool
   const [previousTool, setPreviousTool] = useState<ToolType>(null);
   
@@ -226,6 +226,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
 
   return (
     <div 
+      ref={ref}
       className={`fixed left-1/2 bottom-[40%] -translate-x-1/2 flex flex-col items-center w-fit ${className || ''}`}
       onClick={(e: React.MouseEvent) => e.stopPropagation()}
     >
@@ -493,6 +494,6 @@ const Toolbar: React.FC<ToolbarProps> = ({
       </div>
     </div>
   );
-};
+});
 
 export default Toolbar;

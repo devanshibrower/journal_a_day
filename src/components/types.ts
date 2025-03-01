@@ -1,5 +1,5 @@
 // Tool types
-export type ToolType = 'marker' | 'washiTape' | 'imageFrame' | null;
+export type ToolType = 'marker' | 'washiTape' | 'imageFrame' | 'text' | null;
 
 // Marker tool types
 export type MarkerTipType = 'thin' | 'marker';
@@ -63,4 +63,16 @@ export interface JournalEntry {
   elements: (WashiTapeElement | ImageFrame)[];  // Updated to include ImageFrames
   isLocked: boolean;
   lastModified: string;
+}
+
+export interface TextElement {
+  id: string;
+  x: number;
+  y: number;
+  text: string;
+  fontSize: number;
+  fontFamily: string;
+  color: string;
+  width?: number;
+  height?: number;
 } 

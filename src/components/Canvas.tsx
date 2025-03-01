@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { ToolType, DrawnPath, Point, ImageFrame, FrameToolState } from '../components/types';
+import { ToolType, DrawnPath, Point, ImageFrame, FrameToolState, TextElement } from '../components/types';
 import { WASHI_PATTERNS, WashiTapePattern } from '../components/tools/WashiTapeTool';
+import TextModal from './TextModal';
 
 // Constants for frame dimensions
 const FRAME_WIDTH = 110;
@@ -10,6 +11,7 @@ interface CanvasProps {
   width?: number;
   height?: number;
   selectedTool?: ToolType;
+  setSelectedTool: (tool: ToolType) => void;
   toolOptions?: {
     markerColor?: string;
     markerTipType?: 'thin' | 'marker';
@@ -23,6 +25,7 @@ interface CanvasProps {
 
 const Canvas: React.FC<CanvasProps> = ({
   selectedTool = null,
+  setSelectedTool,
   toolOptions = {},
   undoRef,
   redoRef,
@@ -61,7 +64,7 @@ const Canvas: React.FC<CanvasProps> = ({
   const [rotateStartAngle, setRotateStartAngle] = useState(0);
 
   // RAF reference for smooth resizing
-  const rafRef = useRef<number>();
+  const rafRef = useRef<number | undefined>(undefined);
   const currentResizeData = useRef<{
     mouseX: number;
     mouseY: number;
@@ -90,6 +93,21 @@ const Canvas: React.FC<CanvasProps> = ({
 
   // History state
   const [history, setHistory] = useState<ImageData[]>([]);
+
+  // Text state
+  const [textElements, setTextElements] = useState<TextElement[]>([]);
+  const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
+  const [isEditingText, setIsEditingText] = useState(false);
+  const [textBoxSize, setTextBoxSize] = useState<{width: number, height: number}>({width: 150, height: 50});
+  const [isResizingText, setIsResizingText] = useState(false);
+  const [resizeStartPos, setResizeStartPos] = useState<{x: number, y: number}>({x: 0, y: 0});
+  const [resizeStartSize, setResizeStartSize] = useState<{width: number, height: number}>({width: 0, height: 0});
+
+  // Text Modal state
+  const [isTextModalOpen, setIsTextModalOpen] = useState(false);
+  const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const [textDragStart, setTextDragStart] = useState<{x: number, y: number} | null>(null);
+  const [textPosition, setTextPosition] = useState<{x: number, y: number}>({x: 0, y: 0});
 
   // Initialize offscreen canvas
   useEffect(() => {
@@ -528,13 +546,13 @@ const Canvas: React.FC<CanvasProps> = ({
 
   // Start drawing
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const coords = getScaledCoords(e);
-
     if (selectedTool === 'marker') {
+      const coords = getScaledCoords(e);
       setIsDrawing(true);
       isDrawingRef.current = true;
       setCurrentPath([coords]);
     } else if (selectedTool === 'washiTape') {
+      const coords = getScaledCoords(e);
       setIsPlacingWashiTape(true);
       setWashiTapeStartX(coords.x);
       setWashiTapeStartY(coords.y);
@@ -692,7 +710,7 @@ const Canvas: React.FC<CanvasProps> = ({
     setRotateStartAngle(angleRad);
   };
 
-  // Stop drawing and interactions
+  // Stop drawing
   const stopDrawing = () => {
     if (selectedTool === 'marker' && isDrawingRef.current) {
       saveToHistory();
@@ -729,14 +747,6 @@ const Canvas: React.FC<CanvasProps> = ({
       }));
     }
 
-    // Clean up resize state
-    if (isResizing) {
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-      }
-      currentResizeData.current = null;
-    }
-
     setIsResizing(false);
     setIsRotating(false);
   };
@@ -750,6 +760,7 @@ const Canvas: React.FC<CanvasProps> = ({
   // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyboard = (e: KeyboardEvent) => {
+      // Existing undo/redo handler
       if (e.key.toLowerCase() === 'z' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         if (e.shiftKey) {
@@ -758,37 +769,71 @@ const Canvas: React.FC<CanvasProps> = ({
           saveToHistory();
         }
       }
+
+      // Handle ESC key
+      if (e.key === 'Escape') {
+        // Only handle ESC if we're not in the modal (modal has its own ESC handler)
+        if (!isTextModalOpen) {
+          if (selectedTool === 'text') {
+            setSelectedTool(null);
+          }
+          if (selectedTextId) {
+            setSelectedTextId(null);
+          }
+        }
+      }
+
+      // Handle T key for text tool
+      if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey && !e.altKey && !isTextModalOpen) {
+        e.preventDefault();
+        setSelectedTool(selectedTool === 'text' ? null : 'text');
+      }
     };
 
     window.addEventListener('keydown', handleKeyboard);
     return () => window.removeEventListener('keydown', handleKeyboard);
-  }, [saveToHistory]);
+  }, [saveToHistory, selectedTool, selectedTextId, isTextModalOpen, setSelectedTool]);
 
   // Update tool state when selected tool changes
   useEffect(() => {
     console.log('Tool changed to:', selectedTool);
     if (selectedTool === 'imageFrame') {
-      setFrameState(prev => {
-        console.log('Setting frameState to PLACING');
-        return {
-          ...prev,
-          toolState: FrameToolState.PLACING
-        };
-      });
+      setFrameState(prev => ({
+        ...prev,
+        toolState: FrameToolState.PLACING
+      }));
+    } else if (selectedTool === 'text') {
+      // Deselect any selected text when switching to text tool
+      setSelectedTextId(null);
+      setIsEditingText(false);
     } else {
       setFrameState(prev => ({
         ...prev,
         toolState: FrameToolState.INACTIVE,
         selectedId: null
       }));
+      // Deselect text when switching to other tools
+      setSelectedTextId(null);
+      setIsEditingText(false);
     }
   }, [selectedTool]);
 
-  // Handle canvas clicks for image frames
-  const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    console.log('Canvas clicked, tool:', selectedTool, 'toolState:', frameState.toolState);
+  // Handle canvas clicks for text and frames
+  const handleCanvasClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    console.log('Canvas clicked, selectedTool:', selectedTool);
     
-    if (selectedTool === 'imageFrame' && frameState.toolState === FrameToolState.PLACING) {
+    if (selectedTool === 'text') {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      
+      console.log('Opening text modal at:', x, y);
+      setEditingTextId(null); // New text
+      setTextPosition({ x, y }); // Store position for new text
+      setIsTextModalOpen(true);
+    } else if (selectedTool === 'imageFrame' && frameState.toolState === FrameToolState.PLACING) {
       const rect = canvasRef.current?.getBoundingClientRect();
       if (!rect) return;
       
@@ -819,7 +864,7 @@ const Canvas: React.FC<CanvasProps> = ({
         return newState;
       });
     }
-  };
+  }, [selectedTool, frameState.toolState]);
 
   // Handle image upload for frames
   const handleImageUpload = (frameId: string) => {
@@ -854,9 +899,65 @@ const Canvas: React.FC<CanvasProps> = ({
     e.target.value = ''; // Reset file input
   };
 
-  // Add global mouse up handler
+  // Handle text resize start
+  const handleTextResizeStart = (e: React.MouseEvent, textId: string) => {
+    e.stopPropagation();
+    e.preventDefault();
+    
+    const text = textElements.find(t => t.id === textId);
+    if (!text) return;
+    
+    setIsResizingText(true);
+    setResizeStartPos({
+      x: e.clientX,
+      y: e.clientY
+    });
+    setResizeStartSize({
+      width: text.width || textBoxSize.width,
+      height: text.height || textBoxSize.height
+    });
+  };
+
+  // Handle text resize move
+  const handleTextResizeMove = (e: React.MouseEvent) => {
+    if (!isResizingText || !selectedTextId) return;
+    
+    const deltaX = e.clientX - resizeStartPos.x;
+    const deltaY = e.clientY - resizeStartPos.y;
+    
+    const newWidth = Math.max(50, resizeStartSize.width + deltaX);
+    const newHeight = Math.max(20, resizeStartSize.height + deltaY);
+    
+    setTextBoxSize({width: newWidth, height: newHeight});
+    
+    setTextElements(prev => 
+      prev.map(t => 
+        t.id === selectedTextId 
+          ? { ...t, width: newWidth, height: newHeight } 
+          : t
+      )
+    );
+  };
+
+  // Handle text resize end
+  const handleTextResizeEnd = () => {
+    setIsResizingText(false);
+  };
+
+  // Add global mouse move and up handlers for text resizing
   useEffect(() => {
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      if (isResizingText) {
+        handleTextResizeMove(e as unknown as React.MouseEvent);
+      }
+    };
+    
     const handleGlobalMouseUp = () => {
+      if (isResizingText) {
+        handleTextResizeEnd();
+      }
+      
+      // Handle other mouse up events
       stopDrawing();
       
       if (frameState.isDragging) {
@@ -871,9 +972,14 @@ const Canvas: React.FC<CanvasProps> = ({
       setIsRotating(false);
     };
     
+    window.addEventListener('mousemove', handleGlobalMouseMove);
     window.addEventListener('mouseup', handleGlobalMouseUp);
-    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
-  }, [frameState.isDragging, frameState.selectedId]);
+    
+    return () => {
+      window.removeEventListener('mousemove', handleGlobalMouseMove);
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+    };
+  }, [isResizingText, selectedTextId, resizeStartPos, resizeStartSize, frameState.isDragging, frameState.selectedId]);
 
   // Clean up RAF on unmount and when resizing ends
   useEffect(() => {
@@ -884,16 +990,112 @@ const Canvas: React.FC<CanvasProps> = ({
     };
   }, []);
 
+  // Handle text save
+  const handleTextSave = useCallback((text: string) => {
+    if (editingTextId) {
+      // Update existing text
+      setTextElements(prev => prev.map(t => 
+        t.id === editingTextId ? { 
+          ...t, 
+          text,
+          // Preserve existing position and dimensions
+          width: t.width,
+          height: t.height
+        } : t
+      ));
+    } else {
+      // Create new text only when not editing
+      const newText: TextElement = {
+        id: Math.random().toString(36).substr(2, 9),
+        x: textPosition.x,
+        y: textPosition.y,
+        text,
+        fontSize: 12,
+        fontFamily: 'Cedarville Cursive',
+        color: '#000000',
+        width: 150,
+        height: 50
+      };
+      setTextElements(prev => [...prev, newText]);
+    }
+    
+    // Reset states
+    setIsTextModalOpen(false);
+    setEditingTextId(null);
+    setTextPosition({ x: 0, y: 0 }); // Reset position after use
+  }, [editingTextId, textPosition]);
+
+  const handleTextDelete = useCallback(() => {
+    if (editingTextId) {
+      setTextElements(prev => prev.filter(t => t.id !== editingTextId));
+      setSelectedTextId(null); // Clear selection when deleting
+    }
+    setIsTextModalOpen(false);
+    setEditingTextId(null);
+    setTextPosition({ x: 0, y: 0 }); // Reset position
+  }, [editingTextId]);
+
+  const handleTextDragStart = useCallback((e: React.MouseEvent, textId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    setTextDragStart({
+      x: e.clientX,
+      y: e.clientY
+    });
+    setSelectedTextId(textId);
+  }, []);
+
+  const handleTextDragMove = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (!textDragStart || !selectedTextId) return;
+
+    const deltaX = e.clientX - textDragStart.x;
+    const deltaY = e.clientY - textDragStart.y;
+
+    setTextElements(prev => prev.map(t => 
+      t.id === selectedTextId ? {
+        ...t,
+        x: t.x + deltaX,
+        y: t.y + deltaY
+      } : t
+    ));
+
+    setTextDragStart({
+      x: e.clientX,
+      y: e.clientY
+    });
+  }, [textDragStart, selectedTextId]);
+
+  const handleTextDragEnd = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setTextDragStart(null);
+  }, []);
+
   return (
     <div className="relative w-full h-full">
       <canvas
         ref={canvasRef}
         className="w-full h-full bg-zinc-50"
-        onMouseDown={startDrawing}
+        onClick={(e) => {
+          if (selectedTool === 'text') {
+            handleCanvasClick(e);
+          }
+        }}
+        onMouseDown={(e) => {
+          if (selectedTool !== 'text') {
+            startDrawing(e);
+          }
+        }}
         onMouseMove={handleMouseMove}
         onMouseUp={stopDrawing}
         onMouseOut={stopDrawing}
-        onClick={handleCanvasClick}
         style={{ touchAction: 'none' }}
       />
 
@@ -1023,6 +1225,98 @@ const Canvas: React.FC<CanvasProps> = ({
           </div>
         ))}
       </div>
+
+      {/* Text elements layer */}
+      <div 
+        className="absolute inset-0"
+        style={{ 
+          position: 'absolute', 
+          top: 0, 
+          left: 0, 
+          width: '100%', 
+          height: '100%',
+          pointerEvents: selectedTool === 'text' || selectedTextId ? 'auto' : 'none',
+          zIndex: 5
+        }}
+        onClick={(e) => {
+          // Only open modal for new text if clicking directly on the layer (not on text elements)
+          if (selectedTool === 'text' && e.target === e.currentTarget) {
+            const rect = canvasRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            setEditingTextId(null);
+            setTextPosition({ x, y });
+            setIsTextModalOpen(true);
+          }
+        }}
+      >
+        {textElements.map(text => (
+          <div
+            key={text.id}
+            className={`absolute ${selectedTextId === text.id ? 'ring-2 ring-blue-500' : ''}`}
+            style={{
+              left: `${text.x}px`,
+              top: `${text.y}px`,
+              transform: 'translate(-50%, -50%)',
+              fontSize: `${text.fontSize}px`,
+              fontFamily: text.fontFamily,
+              color: text.color,
+              cursor: textDragStart ? 'grabbing' : 'grab',
+              width: `${text.width}px`,
+              height: `${text.height}px`,
+              padding: '4px',
+              userSelect: 'none',
+              backgroundColor: selectedTextId === text.id ? 'rgba(255, 255, 255, 0.1)' : 'transparent'
+            }}
+            onClick={(e) => {
+              e.stopPropagation(); // Prevent opening new text modal
+              if (!textDragStart) { // Only select if not dragging
+                setSelectedTextId(text.id);
+              }
+            }}
+            onMouseDown={(e) => handleTextDragStart(e, text.id)}
+            onMouseMove={handleTextDragMove}
+            onMouseUp={handleTextDragEnd}
+            onMouseLeave={handleTextDragEnd}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              setEditingTextId(text.id);
+              setIsTextModalOpen(true);
+            }}
+          >
+            <div className="w-full h-full break-words overflow-hidden">
+              {text.text}
+            </div>
+            
+            {/* Resize handle */}
+            {selectedTextId === text.id && (
+              <div
+                className="absolute bottom-0 right-0 w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-se-resize hover:scale-125"
+                style={{ 
+                  transform: 'translate(50%, 50%)',
+                  zIndex: 10
+                }}
+                onMouseDown={(e) => handleTextResizeStart(e, text.id)}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Text Modal */}
+      <TextModal
+        isOpen={isTextModalOpen}
+        onClose={() => {
+          setIsTextModalOpen(false);
+          setEditingTextId(null);
+        }}
+        onSave={handleTextSave}
+        onDelete={handleTextDelete}
+        initialText={editingTextId ? textElements.find(t => t.id === editingTextId)?.text || '' : ''}
+      />
 
       {/* Hidden file input for image upload */}
       <input 
