@@ -5,7 +5,7 @@ import TextModal from './TextModal';
 
 // Constants for frame dimensions
 const FRAME_WIDTH = 110;
-const FRAME_HEIGHT = 140;
+const FRAME_HEIGHT = 130;
 
 interface CanvasProps {
   width?: number;
@@ -21,6 +21,13 @@ interface CanvasProps {
   };
   undoRef?: React.MutableRefObject<(() => void) | null>;
   redoRef?: React.MutableRefObject<(() => void) | null>;
+}
+
+interface CanvasState {
+  paths: DrawnPath[];
+  frames: ImageFrame[];
+  textElements: TextElement[];
+  offscreenCanvas: ImageData | null;
 }
 
 const Canvas: React.FC<CanvasProps> = ({
@@ -109,6 +116,10 @@ const Canvas: React.FC<CanvasProps> = ({
   const [textDragStart, setTextDragStart] = useState<{x: number, y: number} | null>(null);
   const [textPosition, setTextPosition] = useState<{x: number, y: number}>({x: 0, y: 0});
 
+  // History stacks for undo/redo
+  const [undoStack, setUndoStack] = useState<CanvasState[]>([]);
+  const [redoStack, setRedoStack] = useState<CanvasState[]>([]);
+
   // Initialize offscreen canvas
   useEffect(() => {
     if (!offscreenCanvasRef.current) {
@@ -156,6 +167,22 @@ const Canvas: React.FC<CanvasProps> = ({
     return () => window.removeEventListener('resize', updateCanvasSize);
   }, []);
 
+  // Save initial state when component mounts
+  useEffect(() => {
+    const initialState: CanvasState = {
+      paths: [],
+      frames: [],
+      textElements: [],
+      offscreenCanvas: offscreenCanvasRef.current?.getContext('2d')?.getImageData(
+        0,
+        0,
+        offscreenCanvasRef.current.width,
+        offscreenCanvasRef.current.height
+      ) || null
+    };
+    setUndoStack([initialState]);
+  }, []);
+
   // Save current state to history
   const saveToHistory = useCallback(() => {
     const offscreenCanvas = offscreenCanvasRef.current;
@@ -164,11 +191,168 @@ const Canvas: React.FC<CanvasProps> = ({
     const ctx = offscreenCanvas.getContext('2d', { alpha: false });
     if (!ctx) return;
 
-    const imageData = ctx.getImageData(0, 0, offscreenCanvas.width, offscreenCanvas.height);
-    const newHistory = history.slice(0, currentStep + 1);
-    setHistory([...newHistory, imageData]);
-    setCurrentStep(currentStep + 1);
-  }, [history, currentStep]);
+    // Don't save if there are no changes
+    const currentState: CanvasState = {
+      paths,
+      frames: frameState.frames,
+      textElements,
+      offscreenCanvas: ctx.getImageData(0, 0, offscreenCanvas.width, offscreenCanvas.height)
+    };
+
+    // Only save if there are actual changes
+    setUndoStack(prev => {
+      const lastState = prev[prev.length - 1];
+      if (!lastState) return [...prev, currentState];
+
+      // Check if there are actual changes
+      const hasChanges = 
+        paths.length !== lastState.paths.length ||
+        frameState.frames.length !== lastState.frames.length ||
+        textElements.length !== lastState.textElements.length ||
+        JSON.stringify(frameState.frames) !== JSON.stringify(lastState.frames) ||
+        JSON.stringify(textElements) !== JSON.stringify(lastState.textElements);
+
+      if (!hasChanges) return prev;
+      return [...prev, currentState];
+    });
+    setRedoStack([]); // Clear redo stack when new action is performed
+  }, [paths, frameState.frames, textElements]);
+
+  // Undo function
+  const handleUndo = useCallback(() => {
+    setUndoStack(prev => {
+      if (prev.length <= 1) return prev; // Keep at least one state
+
+      const newUndoStack = [...prev];
+      const currentState: CanvasState = {
+        paths,
+        frames: frameState.frames,
+        textElements,
+        offscreenCanvas: offscreenCanvasRef.current?.getContext('2d')?.getImageData(
+          0,
+          0,
+          offscreenCanvasRef.current.width,
+          offscreenCanvasRef.current.height
+        ) || null
+      };
+      const previousState = newUndoStack[newUndoStack.length - 2]; // Get second to last state
+      
+      // Update all state
+      setPaths(previousState.paths);
+      setFrameState(prev => ({ 
+        ...prev, 
+        frames: previousState.frames,
+        selectedId: null, // Clear selection
+        isDragging: false,
+        toolState: FrameToolState.INACTIVE
+      }));
+      setTextElements(previousState.textElements);
+      setSelectedTextId(null); // Clear text selection
+      
+      // Restore canvas state
+      if (previousState.offscreenCanvas && offscreenCanvasRef.current) {
+        const ctx = offscreenCanvasRef.current.getContext('2d');
+        if (ctx) {
+          ctx.putImageData(previousState.offscreenCanvas, 0, 0);
+        }
+      }
+
+      // Update stacks
+      setRedoStack(prev => [...prev, currentState]);
+      
+      drawCanvas();
+      return newUndoStack.slice(0, -1);
+    });
+  }, [paths, frameState.frames, textElements]);
+
+  // Redo function
+  const handleRedo = useCallback(() => {
+    setRedoStack(prev => {
+      if (prev.length === 0) return prev;
+
+      const newRedoStack = [...prev];
+      const nextState = newRedoStack[newRedoStack.length - 1];
+      const currentState: CanvasState = {
+        paths,
+        frames: frameState.frames,
+        textElements,
+        offscreenCanvas: offscreenCanvasRef.current?.getContext('2d')?.getImageData(
+          0,
+          0,
+          offscreenCanvasRef.current.width,
+          offscreenCanvasRef.current.height
+        ) || null
+      };
+
+      // Update all state
+      setPaths(nextState.paths);
+      setFrameState(prev => ({ 
+        ...prev, 
+        frames: nextState.frames,
+        selectedId: null, // Clear selection
+        isDragging: false,
+        toolState: FrameToolState.INACTIVE
+      }));
+      setTextElements(nextState.textElements);
+      setSelectedTextId(null); // Clear text selection
+      
+      // Restore canvas state
+      if (nextState.offscreenCanvas && offscreenCanvasRef.current) {
+        const ctx = offscreenCanvasRef.current.getContext('2d');
+        if (ctx) {
+          ctx.putImageData(nextState.offscreenCanvas, 0, 0);
+        }
+      }
+
+      // Update stacks
+      setUndoStack(prev => [...prev, currentState]);
+      
+      drawCanvas();
+      return newRedoStack.slice(0, -1);
+    });
+  }, [paths, frameState.frames, textElements]);
+
+  // Expose undo/redo methods through refs
+  useEffect(() => {
+    if (undoRef) undoRef.current = handleUndo;
+    if (redoRef) redoRef.current = handleRedo;
+  }, [handleUndo, handleRedo]);
+
+  // Handle keyboard shortcuts
+  useEffect(() => {
+    const handleKeyboard = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === 'z' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+      }
+
+      // Handle ESC key
+      if (e.key === 'Escape') {
+        // Only handle ESC if we're not in the modal (modal has its own ESC handler)
+        if (!isTextModalOpen) {
+          if (selectedTool === 'text') {
+            setSelectedTool(null);
+          }
+          if (selectedTextId) {
+            setSelectedTextId(null);
+          }
+        }
+      }
+
+      // Handle T key for text tool
+      if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey && !e.altKey && !isTextModalOpen) {
+        e.preventDefault();
+        setSelectedTool(selectedTool === 'text' ? null : 'text');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyboard);
+    return () => window.removeEventListener('keydown', handleKeyboard);
+  }, [handleUndo, handleRedo, selectedTool, selectedTextId, isTextModalOpen, setSelectedTool]);
 
   // Get scaled coordinates
   const getScaledCoords = (e: React.MouseEvent<HTMLCanvasElement>): Point => {
@@ -215,34 +399,45 @@ const Canvas: React.FC<CanvasProps> = ({
     if (isResizing && frameState.selectedId && resizeStartData) {
       const frame = frameState.frames.find(f => f.id === frameState.selectedId);
       if (!frame) return;
-      
-      // Calculate the distance moved from the original start position
+
+      // Calculate the change in mouse position
       const deltaX = e.clientX - resizeStartData.startX;
       const deltaY = e.clientY - resizeStartData.startY;
-      
-      // Calculate scale based on diagonal movement for smoother resizing
-      const diagonal = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-      const direction = deltaX + deltaY > 0 ? 1 : -1;
-      const scaleFactor = 1 + (direction * diagonal / Math.sqrt(resizeStartData.startWidth * resizeStartData.startWidth + resizeStartData.startHeight * resizeStartData.startHeight));
-      
-      // Apply scaling with minimum size constraint
-      const baseScale = Math.max(0.2, scaleFactor); // Allow scaling down to 20% of original size
-      const newWidth = resizeStartData.startWidth * baseScale;
-      const newHeight = resizeStartData.startHeight * baseScale;
-      
-      // Only update if above minimum size
-      if (newWidth >= 50 && newHeight >= 50) {
-        setFrameState(prev => ({
-          ...prev,
-          frames: prev.frames.map(f => 
-            f.id === prev.selectedId ? { 
-              ...f, 
-              width: newWidth,
-              height: newHeight
-            } : f
-          )
-        }));
+
+      // Calculate new dimensions based on mouse movement
+      let newWidth = resizeStartData.startWidth + deltaX;
+      let newHeight = resizeStartData.startHeight + deltaY;
+
+      // Maintain aspect ratio
+      const aspectRatio = resizeStartData.aspectRatio;
+      if (Math.abs(deltaX) > Math.abs(deltaY)) {
+        newHeight = newWidth / aspectRatio;
+      } else {
+        newWidth = newHeight * aspectRatio;
       }
+
+      // Apply minimum size constraint
+      const minSize = 50;
+      if (newWidth < minSize) {
+        newWidth = minSize;
+        newHeight = minSize / aspectRatio;
+      }
+      if (newHeight < minSize) {
+        newHeight = minSize;
+        newWidth = minSize * aspectRatio;
+      }
+
+      // Update frame size immediately
+      setFrameState(prev => ({
+        ...prev,
+        frames: prev.frames.map(f =>
+          f.id === frame.id ? {
+            ...f,
+            width: newWidth,
+            height: newHeight
+          } : f
+        )
+      }));
     }
     
     // Handle rotating
@@ -622,75 +817,19 @@ const Canvas: React.FC<CanvasProps> = ({
     const frame = frameState.frames.find(f => f.id === frameId);
     if (!frame) return;
     
-    // Calculate handle offset from mouse position
-    const handleRect = (e.target as HTMLElement).getBoundingClientRect();
-    const handleOffset = {
-      x: e.clientX - (handleRect.left + handleRect.width / 2),
-      y: e.clientY - (handleRect.top + handleRect.height / 2)
-    };
-    
     setFrameState(prev => ({ ...prev, selectedId: frameId }));
     setIsResizing(true);
     
     // Store initial resize data
     setResizeStartData({
-      startX: e.clientX - handleOffset.x,
-      startY: e.clientY - handleOffset.y,
+      startX: e.clientX,
+      startY: e.clientY,
       startWidth: frame.width,
       startHeight: frame.height,
       aspectRatio: frame.width / frame.height,
-      handleOffset
+      handleOffset: { x: 0, y: 0 } // We don't need this anymore
     });
-
-    // Initialize current resize data
-    currentResizeData.current = {
-      mouseX: e.clientX,
-      mouseY: e.clientY,
-      frame
-    };
-
-    // Start RAF loop
-    rafRef.current = requestAnimationFrame(updateResize);
   };
-
-  // Update resize with RAF
-  const updateResize = useCallback(() => {
-    if (!isResizing || !resizeStartData || !currentResizeData.current) return;
-
-    const { mouseX, mouseY, frame } = currentResizeData.current;
-    const { startWidth, startHeight, startX, startY, aspectRatio } = resizeStartData;
-
-    // Calculate deltas with handle offset correction
-    const deltaX = mouseX - startX;
-    const deltaY = mouseY - startY;
-
-    // Calculate new dimensions while maintaining aspect ratio
-    let newWidth = Math.max(50, startWidth + deltaX);
-    let newHeight = newWidth / aspectRatio;
-
-    // Ensure minimum height
-    if (newHeight < 50) {
-      newHeight = 50;
-      newWidth = newHeight * aspectRatio;
-    }
-
-    // Update frame size
-    setFrameState(prev => ({
-      ...prev,
-      frames: prev.frames.map(f =>
-        f.id === frame.id ? {
-          ...f,
-          width: newWidth,
-          height: newHeight
-        } : f
-      )
-    }));
-
-    // Continue RAF loop if still resizing
-    if (isResizing) {
-      rafRef.current = requestAnimationFrame(updateResize);
-    }
-  }, [isResizing, resizeStartData]);
 
   // Handle rotation start
   const handleRotateStart = (e: React.MouseEvent, frameId: string) => {
@@ -713,86 +852,55 @@ const Canvas: React.FC<CanvasProps> = ({
   // Stop drawing
   const stopDrawing = () => {
     if (selectedTool === 'marker' && isDrawingRef.current) {
-      saveToHistory();
+      if (currentPath.length > 0) { // Only save if something was actually drawn
+        saveToHistory();
+      }
       setIsDrawing(false);
       isDrawingRef.current = false;
       setCurrentPath([]);
     } else if (selectedTool === 'washiTape' && isPlacingWashiTape) {
-      const offscreenCanvas = offscreenCanvasRef.current;
-      if (!offscreenCanvas) return;
+      if (washiTapeWidth > 0) { // Only save if washi tape was actually placed
+        const offscreenCanvas = offscreenCanvasRef.current;
+        if (!offscreenCanvas) return;
 
-      const offscreenCtx = offscreenCanvas.getContext('2d', { alpha: false });
-      if (!offscreenCtx) return;
+        const offscreenCtx = offscreenCanvas.getContext('2d', { alpha: false });
+        if (!offscreenCtx) return;
 
-      drawWashiTape(
-        offscreenCtx,
-        washiTapeStartX,
-        washiTapeStartY,
-        washiTapeWidth,
-        washiTapeRotation,
-        toolOptions.washiTapeSelection
-      );
+        drawWashiTape(
+          offscreenCtx,
+          washiTapeStartX,
+          washiTapeStartY,
+          washiTapeWidth,
+          washiTapeRotation,
+          toolOptions.washiTapeSelection
+        );
 
-      setIsPlacingWashiTape(false);
-      saveToHistory();
-      drawCanvas();
+        setIsPlacingWashiTape(false);
+        saveToHistory();
+        drawCanvas();
+      }
     }
 
     // End frame dragging
     if (frameState.isDragging) {
+      const hasFrameMoved = frameState.dragOffset.x !== 0 || frameState.dragOffset.y !== 0;
       setFrameState(prev => ({
         ...prev,
         isDragging: false,
         toolState: prev.selectedId ? FrameToolState.SELECTED : FrameToolState.PLACING
       }));
+      if (hasFrameMoved) {
+        saveToHistory(); // Save history only if frame actually moved
+      }
     }
 
+    // End resize/rotate operations
+    if (isResizing || isRotating) {
+      saveToHistory(); // Always save after resize/rotate as these always create changes
+    }
     setIsResizing(false);
     setIsRotating(false);
   };
-
-  // Expose methods through refs
-  useEffect(() => {
-    if (undoRef) undoRef.current = saveToHistory;
-    if (redoRef) redoRef.current = saveToHistory;
-  }, [saveToHistory]);
-
-  // Handle keyboard shortcuts
-  useEffect(() => {
-    const handleKeyboard = (e: KeyboardEvent) => {
-      // Existing undo/redo handler
-      if (e.key.toLowerCase() === 'z' && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        if (e.shiftKey) {
-          saveToHistory();
-        } else {
-          saveToHistory();
-        }
-      }
-
-      // Handle ESC key
-      if (e.key === 'Escape') {
-        // Only handle ESC if we're not in the modal (modal has its own ESC handler)
-        if (!isTextModalOpen) {
-          if (selectedTool === 'text') {
-            setSelectedTool(null);
-          }
-          if (selectedTextId) {
-            setSelectedTextId(null);
-          }
-        }
-      }
-
-      // Handle T key for text tool
-      if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey && !e.altKey && !isTextModalOpen) {
-        e.preventDefault();
-        setSelectedTool(selectedTool === 'text' ? null : 'text');
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyboard);
-    return () => window.removeEventListener('keydown', handleKeyboard);
-  }, [saveToHistory, selectedTool, selectedTextId, isTextModalOpen, setSelectedTool]);
 
   // Update tool state when selected tool changes
   useEffect(() => {
@@ -817,6 +925,21 @@ const Canvas: React.FC<CanvasProps> = ({
       setIsEditingText(false);
     }
   }, [selectedTool]);
+
+  // Add effect to handle frame color changes
+  useEffect(() => {
+    if (frameState.selectedId && toolOptions.frameColor) {
+      setFrameState(prev => ({
+        ...prev,
+        frames: prev.frames.map(frame =>
+          frame.id === prev.selectedId
+            ? { ...frame, color: toolOptions.frameColor || frame.color }
+            : frame
+        )
+      }));
+      saveToHistory(); // Save history after color change
+    }
+  }, [toolOptions.frameColor, frameState.selectedId, saveToHistory]);
 
   // Handle canvas clicks for text and frames
   const handleCanvasClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -863,8 +986,9 @@ const Canvas: React.FC<CanvasProps> = ({
         console.log('Current frames:', newState.frames);
         return newState;
       });
+      saveToHistory(); // Save history after creating new frame
     }
-  }, [selectedTool, frameState.toolState]);
+  }, [selectedTool, frameState.toolState, saveToHistory]);
 
   // Handle image upload for frames
   const handleImageUpload = (frameId: string) => {
@@ -893,6 +1017,7 @@ const Canvas: React.FC<CanvasProps> = ({
             : frame
         )
       }));
+      saveToHistory(); // Save history after adding image
     };
     
     reader.readAsDataURL(file);
@@ -941,6 +1066,9 @@ const Canvas: React.FC<CanvasProps> = ({
 
   // Handle text resize end
   const handleTextResizeEnd = () => {
+    if (isResizingText) {
+      saveToHistory(); // Save history after text resize
+    }
     setIsResizingText(false);
   };
 
@@ -990,7 +1118,7 @@ const Canvas: React.FC<CanvasProps> = ({
     };
   }, []);
 
-  // Handle text save
+  // Handle text save with history
   const handleTextSave = useCallback((text: string) => {
     if (editingTextId) {
       // Update existing text
@@ -1023,17 +1151,20 @@ const Canvas: React.FC<CanvasProps> = ({
     setIsTextModalOpen(false);
     setEditingTextId(null);
     setTextPosition({ x: 0, y: 0 }); // Reset position after use
-  }, [editingTextId, textPosition]);
+    saveToHistory(); // Save history after text changes
+  }, [editingTextId, textPosition, saveToHistory]);
 
+  // Handle text delete with history
   const handleTextDelete = useCallback(() => {
     if (editingTextId) {
       setTextElements(prev => prev.filter(t => t.id !== editingTextId));
       setSelectedTextId(null); // Clear selection when deleting
+      saveToHistory(); // Save history after text deletion
     }
     setIsTextModalOpen(false);
     setEditingTextId(null);
     setTextPosition({ x: 0, y: 0 }); // Reset position
-  }, [editingTextId]);
+  }, [editingTextId, saveToHistory]);
 
   const handleTextDragStart = useCallback((e: React.MouseEvent, textId: string) => {
     e.preventDefault();
@@ -1072,11 +1203,15 @@ const Canvas: React.FC<CanvasProps> = ({
     });
   }, [textDragStart, selectedTextId]);
 
+  // Handle text drag end with history
   const handleTextDragEnd = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    if (textDragStart && selectedTextId) {
+      saveToHistory(); // Save history after text drag
+    }
     setTextDragStart(null);
-  }, []);
+  }, [textDragStart, selectedTextId, saveToHistory]);
 
   return (
     <div className="relative w-full h-full">
@@ -1152,17 +1287,17 @@ const Canvas: React.FC<CanvasProps> = ({
         {frameState.frames.map(frame => (
           <div
             key={frame.id}
-            className={`absolute ${frameState.selectedId === frame.id ? 'ring-2 ring-blue-500 ring-offset-2' : ''}`}
+            className={`absolute ${frameState.selectedId === frame.id ? 'ring-1 ring-blue-500 ring-offset-2' : ''}`}
             style={{
               left: frame.x,
               top: frame.y,
               width: `${frame.width}px`,
               height: `${frame.height}px`,
               backgroundColor: frame.color,
-              borderRadius: '2px',
+              borderRadius: '1px',
               transform: `translate(-50%, -50%) rotate(${frame.rotation}deg)`,
-              padding: '8px',
-              paddingBottom: '36px',
+              padding: '4px',
+              paddingBottom: '24px',
               cursor: frameState.isDragging && frameState.selectedId === frame.id ? 'grabbing' : 'grab',
               transition: isResizing ? 'none' : 'all 0.1s ease-out',
               willChange: isResizing ? 'width, height' : 'auto'
@@ -1181,27 +1316,25 @@ const Canvas: React.FC<CanvasProps> = ({
                 draggable={false}
               />
             ) : (
-              <div className="w-full h-full flex items-center justify-center bg-gray-100">
-                <button
-                  className="w-12 h-12 rounded-full bg-white hover:bg-gray-200 flex items-center justify-center shadow-sm"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleImageUpload(frame.id);
-                  }}
-                >
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-400">
-                    <path d="M12 5v14M5 12h14" />
-                  </svg>
-                </button>
+              <div 
+                className="w-full h-full flex items-center justify-center bg-gray-100 cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleImageUpload(frame.id);
+                }}
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-400">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
               </div>
             )}
 
-            {/* Resize and rotate controls */}
+            {/* Resize and rotate controls - only show when frame is selected */}
             {frameState.selectedId === frame.id && (
               <>
                 {/* Resize handle */}
                 <div
-                  className="absolute bottom-0 right-0 w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-se-resize hover:scale-125"
+                  className="absolute bottom-0 right-0 w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-se-resize hover:scale-125 z-10"
                   style={{ 
                     transform: 'translate(50%, 50%)',
                     transition: isResizing ? 'none' : 'transform 0.1s ease-out',
@@ -1212,7 +1345,7 @@ const Canvas: React.FC<CanvasProps> = ({
                 
                 {/* Rotate handle */}
                 <div
-                  className="absolute top-0 right-0 w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-crosshair hover:scale-125"
+                  className="absolute top-0 right-0 w-4 h-4 bg-white border-2 border-blue-500 rounded-full cursor-crosshair hover:scale-125 z-10"
                   style={{ 
                     transform: 'translate(50%, -50%)',
                     transition: isResizing ? 'none' : 'transform 0.1s ease-out',
