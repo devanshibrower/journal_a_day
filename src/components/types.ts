@@ -13,15 +13,17 @@ export enum FrameToolState {
 }
 
 export interface ImageFrame {
-  type: 'imageFrame';  // Type discriminator to match WashiTapeElement pattern
+  type: 'imageFrame';
   id: string;
   x: number;
   y: number;
   width: number;
   height: number;
-  rotation: number;
+  color: string;
   imageUrl?: string;
-  color: string; // For polaroid color
+  padding?: number;
+  bottomPadding?: number;
+  createdAt: number; // Timestamp to track creation order
 }
 
 // Tool options types
@@ -48,12 +50,14 @@ export interface DrawnPath {
 // Washi tape types
 export interface WashiTapeElement {
   type: 'washiTape';
+  id: string;  // Add ID for tracking
   pattern?: string;
   color?: string;
   x: number;
   y: number;
   width: number;
   rotation: number;
+  createdAt: number; // Timestamp to track creation order
 }
 
 // Journal entry types

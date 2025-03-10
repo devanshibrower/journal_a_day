@@ -62,15 +62,15 @@ function App() {
         />
       </div>
       
-      {/* Bottom toolbar container */}
-      <div className="fixed bottom-[10%] left-0 right-0 flex justify-center items-center" style={{ height: toolbarHeight || 'auto' }}>
+      {/* Bottom toolbar container - scaled up */}
+      <div className="fixed bottom-[10%] left-0 right-0 flex justify-center items-center scale-[1.5] transform-gpu">
         <Toolbar 
           ref={handleToolbarRef}
           className="!static !transform-none" 
           onToolSelect={setSelectedTool}
           onOptionsChange={handleOptionsChange}
         />
-        <div className="ml-[4px]" style={{ height: toolbarHeight || 'auto' }}>
+        <div className="ml-[4px]">
           <CanvasControls
             onAddText={handleAddText}
             onClearCanvas={handleClearCanvas}

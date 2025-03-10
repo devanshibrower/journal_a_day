@@ -59,19 +59,19 @@ const TextModal: React.FC<TextModalProps> = ({
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
       <div 
         ref={modalRef}
-        className="bg-white rounded-md p-2 w-50"
+        className="bg-white rounded-md p-4 w-[400px]"
       >
         <textarea
           ref={inputRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          className="w-full h-24 p-2 border rounded mb-1 font-['Cedarville_Cursive'] text-xs text-zinc-900 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full h-48 p-4 border rounded mb-2 font-['Cedarville_Cursive'] text-lg text-zinc-900 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
           placeholder="Enter your text..."
         />
-        <div className="flex justify-end gap-2">
+        <div className="flex justify-end gap-3">
           <button
             onClick={onDelete}
-            className="px-2 py-1 text-xs bg-red-500 text-white rounded hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+            className="px-4 py-2 text-base bg-red-500 text-white rounded hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
           >
             Delete
           </button>
@@ -81,7 +81,7 @@ const TextModal: React.FC<TextModalProps> = ({
                 onSave(text);
               }
             }}
-            className="px-2 py-1 text-xs bg-white border border-zinc-900 text-zinc-900 rounded hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-2"
+            className="px-4 py-2 text-base bg-white border border-zinc-900 text-zinc-900 rounded hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-2"
           >
             Save
           </button>

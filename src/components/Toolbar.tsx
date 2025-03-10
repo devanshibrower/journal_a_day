@@ -469,7 +469,7 @@ const Toolbar = forwardRef<HTMLDivElement, ToolbarProps>(({
 
         {/* Main toolbar */}
         <div className="bg-zinc-100 rounded-xl">
-          <div className="px-2 py-2 flex items-center gap-6">
+          <div className="px-3 py-3 flex items-center gap-8">
             <MarkerTool
               isSelected={selectedTool === 'marker'}
               onClick={() => handleToolSelect('marker')}
