@@ -71,6 +71,8 @@ interface CanvasState {
   offscreenCanvas: ImageData | null;
 }
 
+type TextInteractionState = 'IDLE' | 'CREATING' | 'SELECTED' | 'EDITING' | 'RESIZING' | 'DRAGGING';
+
 const Canvas: React.FC<CanvasProps> = ({
   selectedTool = null,
   setSelectedTool,
@@ -163,6 +165,9 @@ const Canvas: React.FC<CanvasProps> = ({
 
   // Add debounce ref
   const saveHistoryTimeoutRef = useRef<number | null>(null);
+
+  // Add text interaction state
+  const [textInteractionState, setTextInteractionState] = useState<TextInteractionState>('IDLE');
 
   // Initialize offscreen canvas
   useEffect(() => {
@@ -588,6 +593,21 @@ const Canvas: React.FC<CanvasProps> = ({
   // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyboard = (e: KeyboardEvent) => {
+      // Skip shortcuts if we're in a text input, but allow TextModal interactions
+      const target = e.target as HTMLElement;
+      const isInTextModal = target.closest('[role="dialog"]') !== null;
+      const isTextInput = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement;
+
+      // Allow all interactions within TextModal
+      if (isInTextModal) {
+        return;
+      }
+
+      // Skip shortcuts only for text inputs outside TextModal
+      if (isTextInput && !isInTextModal) {
+        return;
+      }
+
       // Handle undo/redo
       if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
         e.preventDefault();
@@ -607,17 +627,21 @@ const Canvas: React.FC<CanvasProps> = ({
       }
       
       // Delete key pressed with a frame selected
-      if ((e.key === 'Delete' || e.key === 'Backspace') && frameState.selectedId) {
+      if ((e.key === 'Delete' || e.key === 'Backspace') && (frameState.selectedId || selectedTextId)) {
         e.preventDefault();
         
-        console.log('Delete key pressed, removing frame:', frameState.selectedId);
-        
-        // Delete the selected frame
-        setFrameState(prev => ({
-          ...prev,
-          frames: prev.frames.filter(frame => frame.id !== prev.selectedId),
-          selectedId: null
-        }));
+        if (frameState.selectedId) {
+          console.log('Delete key pressed, removing frame:', frameState.selectedId);
+          setFrameState(prev => ({
+            ...prev,
+            frames: prev.frames.filter(frame => frame.id !== prev.selectedId),
+            selectedId: null
+          }));
+        } else if (selectedTextId) {
+          console.log('Delete key pressed, removing text:', selectedTextId);
+          setTextElements(prev => prev.filter(t => t.id !== selectedTextId));
+          setSelectedTextId(null);
+        }
         
         // Save to history after deletion
         saveToHistory();
@@ -945,6 +969,11 @@ const Canvas: React.FC<CanvasProps> = ({
 
   // Stop drawing
   const stopDrawing = useCallback(() => {
+    // Prevent multiple calls if already stopped
+    if (!isDrawingRef.current && !isPlacingWashiTape && !isResizing) {
+      return;
+    }
+
     console.log('Stop drawing called:', {
       isDrawing: isDrawingRef.current,
       isPlacingWashiTape,
@@ -1014,26 +1043,30 @@ const Canvas: React.FC<CanvasProps> = ({
         ...prev,
         selectedId: null
       }));
+      setTextInteractionState('IDLE');
     } else if (selectedTool === 'text') {
-      // When switching to text tool, deselect frames
+      // When switching to text tool, deselect frames and text
       setSelectedTextId(null);
       setIsEditingText(false);
+      setTextInteractionState('IDLE');
       setFrameState(prev => ({
         ...prev,
         selectedId: null
       }));
     } else if (selectedTool === 'marker' || selectedTool === 'washiTape') {
-      // When switching to drawing tools, deselect frames but don't clear them
+      // When switching to drawing tools, deselect frames and text
       setSelectedTextId(null);
       setIsEditingText(false);
+      setTextInteractionState('IDLE');
       setFrameState(prev => ({
         ...prev,
         selectedId: null
       }));
     } else if (selectedTool === null) {
-      // Selection mode - allows for selecting and moving frames
-      setSelectedTextId(null);
-      setIsEditingText(false);
+      // Selection mode - allows for selecting and moving frames/text
+      if (textInteractionState === 'CREATING') {
+        setTextInteractionState('IDLE');
+      }
     }
   }, [selectedTool]);
 
@@ -1263,10 +1296,14 @@ const Canvas: React.FC<CanvasProps> = ({
     e.stopPropagation();
     e.preventDefault();
     
+    // Only start resize on left mouse button
+    if (e.button !== 0) return;
+    
     const text = textElements.find(t => t.id === textId);
     if (!text) return;
     
     setIsResizingText(true);
+    setTextInteractionState('RESIZING');
     setResizeStartPos({
       x: e.clientX,
       y: e.clientY
@@ -1280,6 +1317,9 @@ const Canvas: React.FC<CanvasProps> = ({
   // Handle text resize move
   const handleTextResizeMove = (e: React.MouseEvent) => {
     if (!isResizingText || !selectedTextId) return;
+    
+    e.stopPropagation();
+    e.preventDefault();
     
     const deltaX = e.clientX - resizeStartPos.x;
     const deltaY = e.clientY - resizeStartPos.y;
@@ -1302,108 +1342,14 @@ const Canvas: React.FC<CanvasProps> = ({
   const handleTextResizeEnd = () => {
     if (isResizingText) {
       saveToHistory(); // Save history after text resize
+      setIsResizingText(false);
+      // Reset resize state
+      setResizeStartPos({ x: 0, y: 0 });
+      setResizeStartSize({ width: 0, height: 0 });
     }
-    setIsResizingText(false);
   };
 
-  // Add global mouse move and up handlers for text resizing
-  useEffect(() => {
-    const handleGlobalMouseMove = (e: MouseEvent) => {
-      if (isResizingText) {
-        handleTextResizeMove(e as unknown as React.MouseEvent);
-      }
-    };
-    
-    const handleGlobalMouseUp = () => {
-      if (isResizingText) {
-        handleTextResizeEnd();
-      }
-      
-      // Handle other mouse up events
-      stopDrawing();
-      setIsResizing(false);
-    };
-    
-    window.addEventListener('mousemove', handleGlobalMouseMove);
-    window.addEventListener('mouseup', handleGlobalMouseUp);
-    
-    return () => {
-      window.removeEventListener('mousemove', handleGlobalMouseMove);
-      window.removeEventListener('mouseup', handleGlobalMouseUp);
-    };
-  }, [isResizingText, selectedTextId, resizeStartPos, resizeStartSize]);
-
-  // Clean up RAF on unmount and when resizing ends
-  useEffect(() => {
-    return () => {
-      if (rafRef.current) {
-        cancelAnimationFrame(rafRef.current);
-      }
-    };
-  }, []);
-
-  // Handle text save with history
-  const handleTextSave = useCallback((text: string) => {
-    if (editingTextId) {
-      // Update existing text
-      setTextElements(prev => prev.map(t => 
-        t.id === editingTextId ? { 
-          ...t, 
-          text,
-          // Preserve existing position and dimensions
-          width: t.width,
-          height: t.height
-        } : t
-      ));
-    } else {
-      // Create new text only when not editing
-      const newText: TextElement = {
-        id: Math.random().toString(36).substr(2, 9),
-        x: textPosition.x,
-        y: textPosition.y,
-        text,
-        fontSize: 20,
-        fontFamily: 'Cedarville Cursive',
-        color: '#000000',
-        width: 150,
-        height: 50
-      };
-      setTextElements(prev => [...prev, newText]);
-    }
-    
-    // Reset states
-    setIsTextModalOpen(false);
-    setEditingTextId(null);
-    setTextPosition({ x: 0, y: 0 }); // Reset position after use
-    saveToHistory(); // Save history after text changes
-  }, [editingTextId, textPosition, saveToHistory]);
-
-  // Handle text delete with history
-  const handleTextDelete = useCallback(() => {
-    if (editingTextId) {
-      setTextElements(prev => prev.filter(t => t.id !== editingTextId));
-      setSelectedTextId(null); // Clear selection when deleting
-      saveToHistory(); // Save history after text deletion
-    }
-    setIsTextModalOpen(false);
-    setEditingTextId(null);
-    setTextPosition({ x: 0, y: 0 }); // Reset position
-  }, [editingTextId, saveToHistory]);
-
-  const handleTextDragStart = useCallback((e: React.MouseEvent, textId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
-    setTextDragStart({
-      x: e.clientX,
-      y: e.clientY
-    });
-    setSelectedTextId(textId);
-  }, []);
-
+  // Handle text drag move
   const handleTextDragMove = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -1427,15 +1373,152 @@ const Canvas: React.FC<CanvasProps> = ({
     });
   }, [textDragStart, selectedTextId]);
 
-  // Handle text drag end with history
+  // Handle text drag end
   const handleTextDragEnd = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (textDragStart && selectedTextId) {
-      saveToHistory(); // Save history after text drag
+    
+    if (textInteractionState === 'DRAGGING') {
+      saveToHistory();
+      setTextDragStart(null);
+      setTextInteractionState('SELECTED');
     }
-    setTextDragStart(null);
-  }, [textDragStart, selectedTextId, saveToHistory]);
+  }, [textInteractionState, saveToHistory]);
+
+  // Add global mouse move and up handlers for text resizing
+  useEffect(() => {
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      if (textInteractionState === 'RESIZING' && selectedTextId) {
+        e.preventDefault();
+        handleTextResizeMove(e as unknown as React.MouseEvent);
+      } else if (textInteractionState === 'DRAGGING' && selectedTextId) {
+        e.preventDefault();
+        handleTextDragMove(e as unknown as React.MouseEvent);
+      }
+    };
+    
+    const handleGlobalMouseUp = (e: MouseEvent) => {
+      // Handle text interactions first
+      if (textInteractionState === 'RESIZING') {
+        handleTextResizeEnd();
+        setTextInteractionState('SELECTED');
+      } else if (textInteractionState === 'DRAGGING') {
+        handleTextDragEnd(e as unknown as React.MouseEvent);
+        setTextInteractionState('SELECTED');
+      }
+
+      // Handle other drawing operations
+      if (isDrawingRef.current || isPlacingWashiTape || isResizing) {
+        stopDrawing();
+      }
+    };
+
+    const handleGlobalMouseLeave = () => {
+      if (textInteractionState === 'RESIZING') {
+        handleTextResizeEnd();
+        setTextInteractionState('SELECTED');
+      } else if (textInteractionState === 'DRAGGING') {
+        setTextDragStart(null);
+        setTextInteractionState('SELECTED');
+      }
+    };
+    
+    window.addEventListener('mousemove', handleGlobalMouseMove);
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    window.addEventListener('mouseleave', handleGlobalMouseLeave);
+    
+    return () => {
+      window.removeEventListener('mousemove', handleGlobalMouseMove);
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+      window.removeEventListener('mouseleave', handleGlobalMouseLeave);
+    };
+  }, [
+    textInteractionState,
+    selectedTextId,
+    isPlacingWashiTape,
+    isResizing,
+    stopDrawing,
+    handleTextResizeMove,
+    handleTextDragMove,
+    handleTextResizeEnd,
+    handleTextDragEnd
+  ]);
+
+  // Clean up RAF on unmount and when resizing ends
+  useEffect(() => {
+    return () => {
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+      }
+    };
+  }, []);
+
+  // Handle text save with history
+  const handleTextSave = useCallback((text: string) => {
+    if (!text.trim()) return; // Don't save empty text
+    
+    if (editingTextId) {
+      // Update existing text
+      setTextElements(prev => {
+        const updated = prev.map(t => 
+          t.id === editingTextId ? { ...t, text } : t
+        );
+        // Only save history if text actually changed
+        const textChanged = prev.find(t => t.id === editingTextId)?.text !== text;
+        if (textChanged) {
+          setTimeout(() => saveToHistory(), 0);
+        }
+        return updated;
+      });
+    } else {
+      // Create new text element
+      setTextElements(prev => {
+        const newElement = {
+          id: Math.random().toString(36).substr(2, 9),
+          x: textPosition.x,
+          y: textPosition.y,
+          text,
+          fontSize: 20,
+          fontFamily: 'Cedarville Cursive',
+          color: '#000000',
+          width: 150,
+          height: 50
+        };
+        setTimeout(() => saveToHistory(), 0);
+        return [...prev, newElement];
+      });
+    }
+    
+    // Reset state
+    setIsTextModalOpen(false);
+    setEditingTextId(null);
+  }, [editingTextId, textPosition.x, textPosition.y, saveToHistory]);
+
+  // Handle text delete
+  const handleTextDelete = useCallback(() => {
+    if (editingTextId) {
+      setTextElements(prev => prev.filter(t => t.id !== editingTextId));
+      saveToHistory();
+    }
+    setIsTextModalOpen(false);
+    setEditingTextId(null);
+  }, [editingTextId, saveToHistory]);
+
+  // Handle text drag start
+  const handleTextDragStart = useCallback((e: React.MouseEvent, textId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Only start drag on left mouse button
+    if (e.button !== 0) return;
+
+    setTextDragStart({
+      x: e.clientX,
+      y: e.clientY
+    });
+    setSelectedTextId(textId);
+    setTextInteractionState('DRAGGING');
+  }, []);
 
   // Add a function to delete the selected frame
   const handleFrameDelete = useCallback(() => {
@@ -1561,8 +1644,12 @@ const Canvas: React.FC<CanvasProps> = ({
           }
         }}
         onMouseMove={handleMouseMove}
-        onMouseUp={stopDrawing}
-        onMouseOut={stopDrawing}
+        onMouseLeave={() => {
+          // Only call stopDrawing if we're actually drawing or placing washi tape
+          if (isDrawingRef.current || isPlacingWashiTape) {
+            stopDrawing();
+          }
+        }}
         style={{ touchAction: 'none', zIndex: 1 }}
       />
 
@@ -1584,16 +1671,20 @@ const Canvas: React.FC<CanvasProps> = ({
           zIndex: 1000 // Always on top
         }}
         onClick={(e) => {
-          if (selectedTool === 'text' && e.target === e.currentTarget) {
+          // Only create new text if we're in text tool mode, not resizing, and not editing existing text
+          if (selectedTool === 'text' && 
+              e.target === e.currentTarget && 
+              textInteractionState === 'IDLE' && 
+              !isTextModalOpen) {
             const rect = canvasRef.current?.getBoundingClientRect();
             if (!rect) return;
             
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
             
-            setEditingTextId(null);
             setTextPosition({ x, y });
             setIsTextModalOpen(true);
+            setTextInteractionState('CREATING');
           }
         }}
       >
@@ -1608,7 +1699,9 @@ const Canvas: React.FC<CanvasProps> = ({
               fontSize: `${text.fontSize}px`,
               fontFamily: text.fontFamily,
               color: text.color,
-              cursor: textDragStart ? 'grabbing' : 'grab',
+              cursor: textInteractionState === 'DRAGGING' ? 'grabbing' : 
+                     textInteractionState === 'RESIZING' ? 'se-resize' : 
+                     selectedTextId === text.id ? 'grab' : 'pointer',
               width: `${text.width}px`,
               height: `${text.height}px`,
               padding: '4px',
@@ -1617,23 +1710,59 @@ const Canvas: React.FC<CanvasProps> = ({
             }}
             onClick={(e) => {
               e.stopPropagation();
-              if (!textDragStart) {
+              if (textInteractionState === 'IDLE') {
                 setSelectedTextId(text.id);
+                setTextInteractionState('SELECTED');
               }
             }}
-            onMouseDown={(e) => handleTextDragStart(e, text.id)}
-            onMouseMove={handleTextDragMove}
-            onMouseUp={handleTextDragEnd}
-            onMouseLeave={handleTextDragEnd}
+            onMouseDown={(e) => {
+              if (textInteractionState === 'SELECTED' || textInteractionState === 'IDLE') {
+                handleTextDragStart(e, text.id);
+              }
+            }}
             onDoubleClick={(e) => {
               e.stopPropagation();
-              setEditingTextId(text.id);
-              setIsTextModalOpen(true);
+              e.preventDefault();
+              if (textInteractionState !== 'RESIZING' && textInteractionState !== 'DRAGGING') {
+                setEditingTextId(text.id);
+                setIsTextModalOpen(true);
+                setTextInteractionState('EDITING');
+              }
             }}
           >
             <div className="w-full h-full break-words overflow-hidden">
               {text.text}
             </div>
+            
+            {/* Delete button */}
+            {selectedTextId === text.id && (
+              <div
+                className="absolute top-0 right-0 w-6 h-6 bg-white rounded-full cursor-pointer hover:bg-red-100 flex items-center justify-center"
+                style={{ 
+                  transform: 'translate(50%, -50%)',
+                  zIndex: 10
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  
+                  // Remove this text element
+                  setTextElements(prev => prev.filter(t => t.id !== text.id));
+                  setSelectedTextId(null);
+                  
+                  // Save to history
+                  saveToHistory();
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-red-500">
+                  <path d="M3 6h18" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+                  <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                  <line x1="10" y1="11" x2="10" y2="17" />
+                  <line x1="14" y1="11" x2="14" y2="17" />
+                </svg>
+              </div>
+            )}
             
             {/* Resize handle */}
             {selectedTextId === text.id && (
@@ -1655,10 +1784,14 @@ const Canvas: React.FC<CanvasProps> = ({
         isOpen={isTextModalOpen}
         onClose={() => {
           setIsTextModalOpen(false);
+          if (textInteractionState === 'CREATING') {
+            setTextInteractionState('IDLE');
+          } else if (textInteractionState === 'EDITING') {
+            setTextInteractionState('SELECTED');
+          }
           setEditingTextId(null);
         }}
         onSave={handleTextSave}
-        onDelete={handleTextDelete}
         initialText={editingTextId ? textElements.find(t => t.id === editingTextId)?.text || '' : ''}
       />
 
