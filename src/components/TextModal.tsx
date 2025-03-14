@@ -69,14 +69,14 @@ const TextModal: React.FC<TextModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-base bg-white border border-zinc-200 text-zinc-600 rounded hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-2"
+            className="px-4 py-2 text-base bg-white text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={() => text.trim() && onSave(text)}
-            className="px-4 py-2 text-base bg-white border border-zinc-900 text-zinc-900 rounded hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-2"
+            className="px-4 py-2 text-base bg-blue-500 text-white border border-transparent rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
           >
             Save
           </button>
