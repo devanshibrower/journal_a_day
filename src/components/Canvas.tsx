@@ -1,16 +1,17 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import ReactDOM from 'react-dom';
+import { flushSync } from 'react-dom';
 import { ToolType, DrawnPath, Point, ImageFrame, FrameToolState, TextElement, WashiTapeElement } from '../components/types';
 import { WASHI_PATTERNS, WashiTapePattern } from '../components/tools/WashiTapeTool';
 import TextModal from './TextModal';
 
 // Constants for frame dimensions and proportions
-const FRAME_WIDTH = 220;  // Increased from original 180, but maintaining proportions
-const FRAME_HEIGHT = 270; // Increased from original 220, maintaining original aspect ratio
-const FRAME_ASPECT_RATIO = FRAME_WIDTH / FRAME_HEIGHT;
+const FRAME_WIDTH = 220; // Same as current
+const FRAME_HEIGHT = 269; // Adjusted to maintain original aspect ratio (220 / 0.818181 ≈ 268.888)
+const FRAME_ASPECT_RATIO = FRAME_WIDTH / FRAME_HEIGHT; // Should now be ~0.818
 const FRAME_MIN_WIDTH = 50;
 const FRAME_PADDING = 8;
-const FRAME_BOTTOM_PADDING = 40; // Moderate increase from original 32
+const FRAME_BOTTOM_PADDING = 40;
 
 // Helper functions for frame dimensions
 const calculateFrameDimensions = (width: number, height: number) => {
@@ -61,6 +62,7 @@ interface CanvasProps {
   };
   undoRef?: React.MutableRefObject<(() => void) | null>;
   redoRef?: React.MutableRefObject<(() => void) | null>;
+  clearRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 interface CanvasState {
@@ -79,6 +81,7 @@ const Canvas: React.FC<CanvasProps> = ({
   toolOptions = {},
   undoRef,
   redoRef,
+  clearRef
 }) => {
   // Canvas refs
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -155,6 +158,26 @@ const Canvas: React.FC<CanvasProps> = ({
   const [undoStack, setUndoStack] = useState<CanvasState[]>([]);
   const [redoStack, setRedoStack] = useState<CanvasState[]>([]);
 
+  // TODO: Known Issues with Undo/Redo Implementation
+  // 1. flushSync can cause rendering conflicts during rapid undo operations
+  //    - Current workaround: Using requestAnimationFrame for canvas updates
+  //    - Need to investigate if state batching is causing missed renders
+  //
+  // 2. State synchronization challenges:
+  //    - Multiple state updates need to happen atomically
+  //    - Canvas state must be restored after React state updates
+  //    - Potential race conditions between state updates and canvas rendering
+  //
+  // 3. Performance considerations:
+  //    - Large history states (especially with images) can impact memory
+  //    - Need to optimize state comparison and storage
+  //
+  // Next steps:
+  // - Consider using useReducer for atomic state updates
+  // - Implement proper cleanup of image data in history
+  // - Add error boundaries around flushSync operations
+  // - Profile performance with React DevTools
+
   // Add state for frame dragging
   const [isDraggingFrame, setIsDraggingFrame] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -165,6 +188,14 @@ const Canvas: React.FC<CanvasProps> = ({
 
   // Add debounce ref
   const saveHistoryTimeoutRef = useRef<number | null>(null);
+
+  // Add last saved state ref
+  const lastSavedStateRef = useRef<{
+    paths: DrawnPath[];
+    frames: ImageFrame[];
+    textElements: TextElement[];
+    washiTapeElements: WashiTapeElement[];
+  } | null>(null);
 
   // Add text interaction state
   const [textInteractionState, setTextInteractionState] = useState<TextInteractionState>('IDLE');
@@ -243,42 +274,76 @@ const Canvas: React.FC<CanvasProps> = ({
       window.clearTimeout(saveHistoryTimeoutRef.current);
     }
 
-    // Schedule new save with 300ms debounce
+    // Schedule new save with 100ms debounce
     saveHistoryTimeoutRef.current = window.setTimeout(() => {
-      console.log('Saving to history:', {
-        paths: paths.length,
-        frames: frameState.frames.length,
-        textElements: textElements.length,
-        washiTapeElements: washiTapeElements.length
-      });
+      // Create current paths snapshot including any active path
+      const currentPaths = [...paths];
+      if (currentPath.length > 0) {
+        currentPaths.push({
+          points: [...currentPath],
+          color: toolOptions.markerColor || '#000000',
+          tipType: toolOptions.markerTipType || 'thin'
+        });
+      }
 
-      const offscreenCanvas = offscreenCanvasRef.current;
-      if (!offscreenCanvas) return;
-
-      const ctx = offscreenCanvas.getContext('2d', { alpha: false, willReadFrequently: true });
-      if (!ctx) return;
-
-      // Create current state snapshot
-      const currentState: CanvasState = {
-        paths: [...paths],
+      // Create current state snapshot without image data
+      const currentState = {
+        paths: currentPaths,
         frames: [...frameState.frames],
         textElements: [...textElements],
-        washiTapeElements: [...washiTapeElements],
-        offscreenCanvas: skipImageData ? null : ctx.getImageData(0, 0, offscreenCanvas.width, offscreenCanvas.height)
+        washiTapeElements: [...washiTapeElements]
       };
 
-      setUndoStack(prev => {
-        // If we're at max size, remove the oldest entry (but keep initial state)
-        if (prev.length >= 15) {
-          return [...prev.slice(1, -1), currentState];
-        }
-        return [...prev, currentState];
-      });
-      
-      // Clear redo stack when new action is performed
-      setRedoStack([]);
-    }, 300);
-  }, [paths, frameState.frames, textElements, washiTapeElements]);
+      // Compare with last saved state
+      const lastState = lastSavedStateRef.current;
+      const statesEqual = lastState && 
+        JSON.stringify({
+          paths: lastState.paths,
+          frames: lastState.frames,
+          textElements: lastState.textElements,
+          washiTapeElements: lastState.washiTapeElements
+        }) === JSON.stringify(currentState);
+
+      // Only save if state has changed
+      if (!statesEqual) {
+        console.log('Saving new state to history:', {
+          paths: currentPaths.length,
+          frames: frameState.frames.length,
+          textElements: textElements.length,
+          washiTapeElements: washiTapeElements.length
+        });
+
+        const offscreenCanvas = offscreenCanvasRef.current;
+        if (!offscreenCanvas) return;
+
+        const ctx = offscreenCanvas.getContext('2d', { alpha: false, willReadFrequently: true });
+        if (!ctx) return;
+
+        // Update undo stack with new state
+        setUndoStack(prev => {
+          // If we're at max size, remove the oldest entry (but keep initial state)
+          if (prev.length >= 15) {
+            return [...prev.slice(1, -1), {
+              ...currentState,
+              offscreenCanvas: skipImageData ? null : ctx.getImageData(0, 0, offscreenCanvas.width, offscreenCanvas.height)
+            }];
+          }
+          return [...prev, {
+            ...currentState,
+            offscreenCanvas: skipImageData ? null : ctx.getImageData(0, 0, offscreenCanvas.width, offscreenCanvas.height)
+          }];
+        });
+        
+        // Clear redo stack when new action is performed
+        setRedoStack([]);
+
+        // Update last saved state
+        lastSavedStateRef.current = currentState;
+      } else {
+        console.log('State unchanged, skipping history save in saveToHistory');
+      }
+    }, 100);
+  }, [paths, currentPath, frameState.frames, textElements, washiTapeElements, toolOptions.markerColor, toolOptions.markerTipType]);
 
   // Cleanup timeout on unmount
   useEffect(() => {
@@ -495,20 +560,34 @@ const Canvas: React.FC<CanvasProps> = ({
   ]);
 
   // Undo function
+  // FIXME: Current implementation has potential issues:
+  // - flushSync may cause React rendering conflicts
+  // - State updates and canvas restoration timing needs review
+  // - Consider moving to useReducer for atomic updates
   const handleUndo = useCallback(() => {
     setUndoStack(prev => {
-      if (prev.length <= 1) return prev; // Keep at least initial state
+      if (prev.length <= 1) {
+        console.log('Cannot undo: at initial state');
+        return prev; // Keep at least initial state
+      }
 
       const newUndoStack = [...prev];
       const currentState = newUndoStack.pop(); // Remove current state
       const previousState = newUndoStack[newUndoStack.length - 1]; // Get previous state
       
       if (currentState && previousState) {
-        // Save current state to redo stack
+        console.log('Undoing to previous state:', {
+          paths: previousState.paths.length,
+          frames: previousState.frames.length,
+          textElements: previousState.textElements.length,
+          washiTapeElements: previousState.washiTapeElements?.length || 0
+        });
+
+        // Save current state to redo stack first
         setRedoStack(prev => [...prev, currentState]);
         
-        // Batch state updates for better performance
-        ReactDOM.unstable_batchedUpdates(() => {
+        // Use flushSync to ensure synchronous state updates
+        flushSync(() => {
           // Reset all interactive states
           setIsDrawing(false);
           isDrawingRef.current = false;
@@ -525,31 +604,57 @@ const Canvas: React.FC<CanvasProps> = ({
           setTextElements(previousState.textElements);
           setWashiTapeElements(previousState.washiTapeElements || []); // Ensure washi tape elements are restored
           setSelectedTextId(null);
+          setTextInteractionState('IDLE');
           
-          // Restore canvas state
-          if (previousState.offscreenCanvas && offscreenCanvasRef.current) {
-            const ctx = offscreenCanvasRef.current.getContext('2d', { alpha: false, willReadFrequently: true });
-            if (ctx) {
-              ctx.putImageData(previousState.offscreenCanvas, 0, 0);
-            }
-          }
+          // Update last saved state ref
+          lastSavedStateRef.current = {
+            paths: previousState.paths,
+            frames: previousState.frames,
+            textElements: previousState.textElements,
+            washiTapeElements: previousState.washiTapeElements || []
+          };
         });
+        
+        // Restore canvas state after state updates
+        if (previousState.offscreenCanvas && offscreenCanvasRef.current) {
+          const ctx = offscreenCanvasRef.current.getContext('2d', { alpha: false, willReadFrequently: true });
+          if (ctx) {
+            ctx.putImageData(previousState.offscreenCanvas, 0, 0);
+          }
+        }
+        
+        // Force immediate canvas redraw
+        requestAnimationFrame(drawCanvas);
+      } else {
+        console.log('Cannot undo: invalid state transition');
       }
-      
-      requestAnimationFrame(drawCanvas);
       return newUndoStack;
     });
   }, [drawCanvas]);
 
   // Redo function
+  // FIXME: Similar issues to handleUndo:
+  // - State restoration order may need optimization
+  // - Canvas updates might miss frames during rapid redo
+  // - Need to ensure proper cleanup of image data
   const handleRedo = useCallback(() => {
     setRedoStack(redoStack => {
-      if (redoStack.length === 0) return redoStack;
+      if (redoStack.length === 0) {
+        console.log('Cannot redo: no actions to redo');
+        return redoStack;
+      }
 
       const [nextState, ...remainingRedoStack] = [...redoStack].reverse();
       
-      // Batch all state updates for better performance
-      ReactDOM.unstable_batchedUpdates(() => {
+      console.log('Redoing to next state:', {
+        paths: nextState.paths.length,
+        frames: nextState.frames.length,
+        textElements: nextState.textElements.length,
+        washiTapeElements: nextState.washiTapeElements?.length || 0
+      });
+
+      // Use flushSync to ensure synchronous state updates
+      flushSync(() => {
         // Reset all interactive states
         setIsDrawing(false);
         isDrawingRef.current = false;
@@ -566,19 +671,29 @@ const Canvas: React.FC<CanvasProps> = ({
         setTextElements(nextState.textElements);
         setWashiTapeElements(nextState.washiTapeElements || []); // Ensure washi tape elements are restored
         setSelectedTextId(null);
+        setTextInteractionState('IDLE');
         
-        // Restore canvas state
-        if (nextState.offscreenCanvas && offscreenCanvasRef.current) {
-          const ctx = offscreenCanvasRef.current.getContext('2d', { alpha: false, willReadFrequently: true });
-          if (ctx) {
-            ctx.putImageData(nextState.offscreenCanvas, 0, 0);
-          }
-        }
+        // Update last saved state ref
+        lastSavedStateRef.current = {
+          paths: nextState.paths,
+          frames: nextState.frames,
+          textElements: nextState.textElements,
+          washiTapeElements: nextState.washiTapeElements || []
+        };
 
         // Update undo stack
         setUndoStack(undoStack => [...undoStack, nextState]);
       });
       
+      // Restore canvas state after state updates
+      if (nextState.offscreenCanvas && offscreenCanvasRef.current) {
+        const ctx = offscreenCanvasRef.current.getContext('2d', { alpha: false, willReadFrequently: true });
+        if (ctx) {
+          ctx.putImageData(nextState.offscreenCanvas, 0, 0);
+        }
+      }
+      
+      // Force immediate canvas redraw
       requestAnimationFrame(drawCanvas);
       return remainingRedoStack.reverse();
     });
@@ -673,6 +788,55 @@ const Canvas: React.FC<CanvasProps> = ({
     window.addEventListener('keydown', handleKeyboard);
     return () => window.removeEventListener('keydown', handleKeyboard);
   }, [handleUndo, handleRedo, selectedTool, selectedTextId, isTextModalOpen, setSelectedTool, frameState.selectedId, saveToHistory]);
+
+  // Add effect to handle frame color changes
+  useEffect(() => {
+    let frameUpdateTimeout: number;
+    
+    if (frameState.selectedId && toolOptions.frameColor) {
+      frameUpdateTimeout = window.setTimeout(() => {
+        setFrameState(prev => ({
+          ...prev,
+          frames: prev.frames.map(frame =>
+            frame.id === prev.selectedId
+              ? { ...frame, color: toolOptions.frameColor || frame.color }
+              : frame
+          )
+        }));
+        saveToHistory();
+      }, 0);
+    }
+    
+    return () => {
+      if (frameUpdateTimeout) {
+        clearTimeout(frameUpdateTimeout);
+      }
+    };
+  }, [toolOptions.frameColor, frameState.selectedId, saveToHistory]);
+
+  // Add useEffect for canvas redraw on state changes
+  useEffect(() => {
+    // Skip redraw if we're in the middle of an action
+    if (isDrawing || isPlacingWashiTape || isResizing || 
+        textInteractionState === 'DRAGGING' || textInteractionState === 'RESIZING') {
+      return;
+    }
+
+    // Force canvas redraw when state changes
+    requestAnimationFrame(() => {
+      drawCanvas();
+    });
+  }, [
+    paths,
+    frameState.frames,
+    textElements,
+    washiTapeElements,
+    isDrawing,
+    isPlacingWashiTape,
+    isResizing,
+    textInteractionState,
+    drawCanvas
+  ]);
 
   // Get scaled coordinates
   const getScaledCoords = (e: React.MouseEvent<HTMLCanvasElement>): Point => {
@@ -984,15 +1148,20 @@ const Canvas: React.FC<CanvasProps> = ({
     if (selectedTool === 'marker' && isDrawingRef.current) {
       console.log('Saving marker path to history');
       if (currentPath.length > 0) {
-        saveToHistory();
+        flushSync(() => {
+          setPaths(prev => [...prev, {
+            points: [...currentPath],
+            color: toolOptions.markerColor || '#000000',
+            tipType: toolOptions.markerTipType || 'thin'
+          }]);
+          setIsDrawing(false);
+          isDrawingRef.current = false;
+          setCurrentPath([]);
+        });
       }
-      setIsDrawing(false);
-      isDrawingRef.current = false;
-      setCurrentPath([]);
     } else if (selectedTool === 'washiTape' && isPlacingWashiTape) {
       console.log('Processing washi tape placement');
       if (washiTapeWidth > 0) {
-        // Create new washi tape element
         const newWashiTape: WashiTapeElement = {
           type: 'washiTape',
           id: Math.random().toString(36).substr(2, 9),
@@ -1004,13 +1173,11 @@ const Canvas: React.FC<CanvasProps> = ({
           createdAt: Date.now()
         };
         
-        // Single batch update for all state changes
-        ReactDOM.unstable_batchedUpdates(() => {
+        flushSync(() => {
           setWashiTapeElements(prev => [...prev, newWashiTape]);
           setIsPlacingWashiTape(false);
           setWashiTapeWidth(0);
           setWashiTapeRotation(0);
-          saveToHistory();
         });
       } else {
         setIsPlacingWashiTape(false);
@@ -1020,7 +1187,6 @@ const Canvas: React.FC<CanvasProps> = ({
     // End resize operations
     if (isResizing) {
       setIsResizing(false);
-      saveToHistory();
     }
   }, [
     selectedTool,
@@ -1030,8 +1196,59 @@ const Canvas: React.FC<CanvasProps> = ({
     washiTapeStartY,
     washiTapeRotation,
     toolOptions.washiTapeSelection,
+    toolOptions.markerColor,
+    toolOptions.markerTipType,
     currentPath,
+    isResizing
+  ]);
+
+  // Add new useEffect for history management
+  useEffect(() => {
+    // Skip saving if we're in the middle of an action
+    if (isDrawing || isPlacingWashiTape || isResizing || 
+        textInteractionState === 'DRAGGING' || textInteractionState === 'RESIZING') {
+      return;
+    }
+
+    // Create current state snapshot without image data
+    const currentState = {
+      paths: [...paths],
+      frames: [...frameState.frames],
+      textElements: [...textElements],
+      washiTapeElements: [...washiTapeElements]
+    };
+
+    // Compare with last saved state
+    const lastState = lastSavedStateRef.current;
+    const statesEqual = lastState && 
+      JSON.stringify({
+        paths: lastState.paths,
+        frames: lastState.frames,
+        textElements: lastState.textElements,
+        washiTapeElements: lastState.washiTapeElements
+      }) === JSON.stringify(currentState);
+
+    // Only save if state has changed and we're not in the middle of an operation
+    if (!statesEqual) {
+      console.log('State changed, saving to history:', {
+        paths: paths.length,
+        frames: frameState.frames.length,
+        textElements: textElements.length,
+        washiTapeElements: washiTapeElements.length
+      });
+      saveToHistory();
+    } else {
+      console.log('State unchanged, skipping history save.');
+    }
+  }, [
+    paths, 
+    frameState.frames, 
+    textElements, 
+    washiTapeElements, 
+    isDrawing, 
+    isPlacingWashiTape, 
     isResizing,
+    textInteractionState,
     saveToHistory
   ]);
 
@@ -1115,31 +1332,6 @@ const Canvas: React.FC<CanvasProps> = ({
       });
     }
   }, [selectedTool, toolOptions.frameColor, saveToHistory, setSelectedTool]);
-
-  // Add effect to handle frame color changes
-  useEffect(() => {
-    let frameUpdateTimeout: number;
-    
-    if (frameState.selectedId && toolOptions.frameColor) {
-      frameUpdateTimeout = window.setTimeout(() => {
-        setFrameState(prev => ({
-          ...prev,
-          frames: prev.frames.map(frame =>
-            frame.id === prev.selectedId
-              ? { ...frame, color: toolOptions.frameColor || frame.color }
-              : frame
-          )
-        }));
-        saveToHistory();
-      }, 0);
-    }
-    
-    return () => {
-      if (frameUpdateTimeout) {
-        clearTimeout(frameUpdateTimeout);
-      }
-    };
-  }, [toolOptions.frameColor, frameState.selectedId, saveToHistory]);
 
   // Handle image upload for frames
   const handleImageUpload = (frameId: string) => {
@@ -1626,6 +1818,69 @@ const Canvas: React.FC<CanvasProps> = ({
       </div>
     );
   };
+
+  // Add clear canvas method
+  const clearCanvas = useCallback(() => {
+    // Reset all state
+    ReactDOM.unstable_batchedUpdates(() => {
+      // Reset drawing state
+      setPaths([]);
+      setCurrentPath([]);
+      setIsDrawing(false);
+      isDrawingRef.current = false;
+      
+      // Reset frame state
+      setFrameState({
+        frames: [],
+        selectedId: null
+      });
+      
+      // Reset text state
+      setTextElements([]);
+      setSelectedTextId(null);
+      setIsEditingText(false);
+      setTextInteractionState('IDLE');
+      
+      // Reset washi tape state
+      setWashiTapeElements([]);
+      setIsPlacingWashiTape(false);
+      
+      // Clear offscreen canvas immediately
+      const offscreenCanvas = offscreenCanvasRef.current;
+      if (offscreenCanvas) {
+        const ctx = offscreenCanvas.getContext('2d', { alpha: false, willReadFrequently: true });
+        if (ctx) {
+          ctx.fillStyle = '#FAFAFA';
+          ctx.fillRect(0, 0, offscreenCanvas.width, offscreenCanvas.height);
+          
+          // Force immediate canvas redraw
+          requestAnimationFrame(() => {
+            const mainCanvas = canvasRef.current;
+            if (mainCanvas) {
+              const mainCtx = mainCanvas.getContext('2d', { alpha: false, willReadFrequently: true });
+              if (mainCtx) {
+                mainCtx.fillStyle = '#FAFAFA';
+                mainCtx.fillRect(0, 0, mainCanvas.width, mainCanvas.height);
+                drawGrid(mainCtx);
+              }
+            }
+            
+            // Save the cleared state to history after canvas is cleared
+            setTimeout(() => {
+              saveToHistory();
+            }, 0);
+          });
+        }
+      }
+    });
+  }, [saveToHistory, drawGrid]);
+
+  // Expose clear method through ref
+  useEffect(() => {
+    if (clearRef) {
+      clearRef.current = clearCanvas;
+    }
+  }, [clearCanvas, clearRef]);
 
   return (
     <div className="relative w-full h-full overflow-visible">

@@ -28,6 +28,7 @@ function App() {
   // Canvas refs
   const canvasUndoRef = useRef<() => void>(null);
   const canvasRedoRef = useRef<() => void>(null);
+  const canvasClearRef = useRef<() => void>(null);
 
   const handleToolbarRef = useCallback((node: HTMLDivElement) => {
     if (node) {
@@ -44,10 +45,14 @@ function App() {
     setSelectedTool(prev => prev === 'text' ? null : 'text');
   }, []);
 
-  const handleClearCanvas = () => {
-    // Will implement clear canvas functionality
-    console.log('Clear canvas clicked');
-  };
+  const handleClearCanvas = useCallback(() => {
+    if (canvasClearRef.current) {
+      // Show confirmation dialog
+      if (window.confirm('Are you sure you want to clear the canvas? This action cannot be undone.')) {
+        canvasClearRef.current();
+      }
+    }
+  }, []);
 
   return (
     <div className="app min-h-screen w-full bg-zinc-50">
@@ -59,6 +64,7 @@ function App() {
           toolOptions={toolOptions}
           undoRef={canvasUndoRef}
           redoRef={canvasRedoRef}
+          clearRef={canvasClearRef}
         />
       </div>
       
