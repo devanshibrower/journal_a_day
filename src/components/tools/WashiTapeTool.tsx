@@ -144,6 +144,7 @@ const WashiTapeTool: React.FC<WashiTapeToolProps> = ({
   onClick,
   selectedWashiTape
 }) => {
+  console.log('WashiTapeTool isSelected:', isSelected); // Diagnostic log
   const [isHovered, setIsHovered] = useState(false);
   
   // Check if the selected option is a pattern or a color
@@ -228,13 +229,14 @@ const WashiTapeTool: React.FC<WashiTapeToolProps> = ({
     }
   };
 
+  const buttonClassName = `w-18 h-18 rounded-md flex items-center justify-center transition-all ${isSelected ? 'bg-gray-100' : ''}`;
+
   return (
     <button
       onClick={onClick}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className={`w-18 h-18 rounded-md flex items-center justify-center transition-all
-        ${isSelected ? 'bg-gray-100' : ''}`}
+      className={buttonClassName}
       title="Washi Tape Tool"
     >
       <svg 
