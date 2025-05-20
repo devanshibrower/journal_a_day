@@ -356,7 +356,6 @@ const Toolbar = forwardRef<HTMLDivElement, ToolbarProps>(({
                                   <div className="absolute inset-0.5">
                                     <PatternPreview 
                                       pattern={pattern}
-                                      isSelected={washiTapeSelection === pattern.id}
                                       onClick={() => handleWashiTapeSelection(pattern.id)}
                                       onMouseEnter={() => setHoveredPatternId(pattern.id)}
                                       onMouseLeave={() => setHoveredPatternId(null)}

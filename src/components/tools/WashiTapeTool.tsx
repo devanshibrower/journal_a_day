@@ -93,13 +93,11 @@ export const WASHI_PATTERNS: WashiTapePattern[] = [
 
 export const PatternPreview: React.FC<{ 
   pattern: WashiTapePattern; 
-  isSelected: boolean; 
   onClick: () => void;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
 }> = ({
   pattern,
-  isSelected,
   onClick,
   onMouseEnter,
   onMouseLeave
