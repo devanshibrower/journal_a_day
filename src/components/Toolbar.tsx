@@ -1,9 +1,8 @@
 import React, { useState, forwardRef } from 'react';
 import MarkerTool from './tools/MarkerTool';
 import WashiTapeTool, { PatternPreview, WASHI_PATTERNS } from './tools/WashiTapeTool';
-import ImageFrameTool, { FramePatternPreview, FRAME_PATTERNS, FramePattern } from './tools/ImageFrameTool';
+import ImageFrameTool, { FramePatternPreview, FRAME_PATTERNS } from './tools/ImageFrameTool';
 import { motion, AnimatePresence } from 'framer-motion';
-import clsx from 'clsx';
 import { ToolType, ToolOptions } from './types';
 
 // Define tool types for type safety
@@ -24,15 +23,9 @@ const Toolbar = forwardRef<HTMLDivElement, ToolbarProps>(({
   onToolSelect,
   onOptionsChange,
 }, ref) => {
-  // Add state to track the previous tool
-  const [previousTool, setPreviousTool] = useState<ToolType>(null);
-  
   // State for currently selected tool
   const [selectedTool, setSelectedTool] = useState<ToolType>(null);
   
-  // State for whether options bar is expanded
-  const [isOptionsExpanded, setIsOptionsExpanded] = useState(false);
-
   // State for tool options with separate color states for each tool
   const [markerColor, setMarkerColor] = useState('#FDBB80');
   // Replace separate pattern and color states with a single selection state
@@ -84,8 +77,6 @@ const Toolbar = forwardRef<HTMLDivElement, ToolbarProps>(({
     '#F5C289', // warmer peach
   ];
 
-  const tipTypes: MarkerTipType[] = ['thin', 'marker'];
-
   // Function to generate a darker version of a color for the marker body
   const getDarkerColor = (color: string) => {
     // Convert hex to RGB
@@ -104,13 +95,9 @@ const Toolbar = forwardRef<HTMLDivElement, ToolbarProps>(({
 
   // Handle tool selection
   const handleToolSelect = (tool: ToolType) => {
-    // Store previous tool before updating
-    setPreviousTool(selectedTool);
-    
     // For all tools, including image frame, switch between them
     if (tool === selectedTool) {
       setSelectedTool(null);
-      setIsOptionsExpanded(false);
       // Reset frame pattern to regular when deselecting image frame tool
       if (tool === 'imageFrame') {
         setSelectedFramePattern('regular');
@@ -118,15 +105,8 @@ const Toolbar = forwardRef<HTMLDivElement, ToolbarProps>(({
       onToolSelect?.(null);
     } else {
       setSelectedTool(tool);
-      setIsOptionsExpanded(true);
       onToolSelect?.(tool);
     }
-  };
-
-  // Handle closing the toolbar
-  const handleClose = () => {
-    setSelectedTool(null);
-    setIsOptionsExpanded(false);
   };
 
   // Get current tool's color palette
