@@ -16,7 +16,6 @@ type ToolOptions = {
 function App() {
   // State for selected tool and options
   const [selectedTool, setSelectedTool] = useState<ToolType>(null);
-  const [toolbarHeight, setToolbarHeight] = useState(0);
   const [toolOptions, setToolOptions] = useState<ToolOptions>({
     markerColor: '#FDBB80', // Default orange color from toolbar
     markerTipType: 'marker', // Default tip type
@@ -32,8 +31,8 @@ function App() {
 
   const handleToolbarRef = useCallback((node: HTMLDivElement) => {
     if (node) {
-      const height = node.getBoundingClientRect().height;
-      setToolbarHeight(height);
+      // const height = node.getBoundingClientRect().height; // Removed as height is not used
+      // setToolbarHeight(height); // Removed as toolbarHeight is not used
     }
   }, []);
 
